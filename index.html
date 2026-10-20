@@ -1,0 +1,467 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>NEBULA · 粒子宇宙</title>
+<style>
+  :root { --fg:#eef1ff; --muted:#8b90b8; --accent:#7cf7ff; --accent2:#ff5fd2; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: #04030a; color: var(--fg); font-family: "Inter", "PingFang SC", system-ui, sans-serif; overflow-x: hidden; }
+  body { cursor: none; }
+  canvas#gl { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 0; }
+
+  /* 加载动画 */
+  #loader { position: fixed; inset: 0; z-index: 100; background: #04030a; display: grid; place-items: center; transition: opacity 1s ease, visibility 1s; }
+  #loader.done { opacity: 0; visibility: hidden; }
+  #loader .num { font-size: 18vw; font-weight: 800; letter-spacing: -0.05em; background: linear-gradient(90deg, var(--accent), var(--accent2)); -webkit-background-clip: text; color: transparent; }
+  #loader .bar { position: absolute; bottom: 12vh; left: 20vw; right: 20vw; height: 2px; background: #ffffff15; overflow: hidden; }
+  #loader .bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--accent), var(--accent2)); }
+
+  /* 自定义光标 */
+  .cursor, .cursor-ring { position: fixed; top: 0; left: 0; pointer-events: none; z-index: 99; border-radius: 50%; mix-blend-mode: difference; }
+  .cursor { width: 8px; height: 8px; background: #fff; margin: -4px 0 0 -4px; }
+  .cursor-ring { width: 40px; height: 40px; border: 1px solid #fff; margin: -20px 0 0 -20px; transition: width .3s, height .3s, margin .3s, background .3s; }
+  .cursor-ring.hover { width: 80px; height: 80px; margin: -40px 0 0 -40px; background: #fff2; }
+
+  nav { position: fixed; top: 0; left: 0; right: 0; z-index: 10; display: flex; justify-content: space-between; align-items: center; padding: 28px 5vw; mix-blend-mode: difference; }
+  nav .logo { font-weight: 800; letter-spacing: .3em; }
+  nav .dots { display: flex; gap: 14px; }
+  nav .dots span { width: 10px; height: 10px; border-radius: 50%; border: 1px solid #fff; transition: background .4s, transform .4s; }
+  nav .dots span.on { background: #fff; transform: scale(1.4); }
+
+  main { position: relative; z-index: 2; }
+  section { min-height: 100vh; display: flex; flex-direction: column; justify-content: center; padding: 0 8vw; pointer-events: none; }
+  section.right { align-items: flex-end; text-align: right; }
+  section.center { align-items: center; text-align: center; }
+  .eyebrow { font-size: 12px; letter-spacing: .5em; color: var(--accent); text-transform: uppercase; margin-bottom: 18px; }
+  h1, h2 { font-weight: 800; line-height: .95; letter-spacing: -0.03em; }
+  h1 { font-size: clamp(56px, 11vw, 180px); }
+  h2 { font-size: clamp(40px, 7vw, 110px); }
+  .grad { background: linear-gradient(90deg, var(--accent), var(--accent2), var(--accent)); background-size: 200% 100%; -webkit-background-clip: text; color: transparent; animation: shine 4s linear infinite; }
+  @keyframes shine { to { background-position: -200% 0; } }
+  p.lead { max-width: 460px; margin-top: 24px; color: var(--muted); font-size: 17px; line-height: 1.7; }
+
+  /* 逐字揭示 */
+  .split .ch { display: inline-block; transform: translateY(110%) rotate(8deg); opacity: 0; transition: transform 1s cubic-bezier(.2,.9,.2,1), opacity 1s; }
+  .split-wrap { display: inline-block; overflow: hidden; vertical-align: top; }
+  .in .split .ch { transform: none; opacity: 1; }
+  .fade { opacity: 0; transform: translateY(40px); transition: opacity 1.2s .4s, transform 1.2s .4s cubic-bezier(.2,.9,.2,1); }
+  .in .fade { opacity: 1; transform: none; }
+
+  /* 3D 倾斜卡片 */
+  .cards { display: flex; gap: 24px; margin-top: 48px; flex-wrap: wrap; pointer-events: auto; perspective: 900px; }
+  .card { width: 240px; padding: 28px; border-radius: 20px; background: linear-gradient(145deg, #ffffff12, #ffffff04); border: 1px solid #ffffff22; backdrop-filter: blur(12px); transform-style: preserve-3d; transition: transform .15s ease-out, box-shadow .3s; position: relative; overflow: hidden; }
+  .card::before { content: ""; position: absolute; inset: 0; background: radial-gradient(300px circle at var(--mx,50%) var(--my,50%), #7cf7ff33, transparent 40%); opacity: 0; transition: opacity .3s; }
+  .card:hover::before { opacity: 1; }
+  .card:hover { box-shadow: 0 30px 60px -20px #ff5fd255; }
+  .card b { display: block; font-size: 40px; margin-bottom: 8px; transform: translateZ(40px); }
+  .card span { color: var(--muted); font-size: 14px; transform: translateZ(20px); display: block; }
+
+  .btn { pointer-events: auto; margin-top: 40px; display: inline-block; padding: 18px 44px; border-radius: 999px; border: 1px solid #ffffff44; color: var(--fg); text-decoration: none; letter-spacing: .2em; font-size: 13px; position: relative; overflow: hidden; transition: color .4s; }
+  .btn::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, var(--accent), var(--accent2)); transform: translateY(101%); transition: transform .5s cubic-bezier(.2,.9,.2,1); z-index: -1; }
+  .btn:hover { color: #04030a; }
+  .btn:hover::after { transform: none; }
+
+  .hint { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); z-index: 5; font-size: 11px; letter-spacing: .4em; color: var(--muted); text-align: center; transition: opacity .6s; }
+  .hint i { display: block; width: 1px; height: 40px; margin: 12px auto 0; background: linear-gradient(var(--accent), transparent); animation: drop 2s infinite; }
+  @keyframes drop { 0% { transform: scaleY(0); transform-origin: top; } 50% { transform: scaleY(1); transform-origin: top; } 51% { transform-origin: bottom; } 100% { transform: scaleY(0); transform-origin: bottom; } }
+
+  .marquee { position: fixed; bottom: 0; left: 0; right: 0; z-index: 1; white-space: nowrap; font-size: 14vw; font-weight: 900; color: transparent; -webkit-text-stroke: 1px #ffffff10; pointer-events: none; }
+  .marquee div { display: inline-block; animation: mq 40s linear infinite; }
+  @keyframes mq { to { transform: translateX(-50%); } }
+
+  @media (max-width: 700px) {
+    body { cursor: auto; } .cursor, .cursor-ring { display: none; }
+    nav { padding: 20px 16px; } section { padding: 0 16px; } .card { width: 100%; }
+  }
+</style>
+</head>
+<body>
+<div id="loader"><div class="num" id="loadNum">0</div><div class="bar"><i id="loadBar"></i></div></div>
+<div class="cursor"></div><div class="cursor-ring"></div>
+<canvas id="gl"></canvas>
+<div class="marquee"><div>NEBULA · PARTICLE · UNIVERSE · MORPH · NEBULA · PARTICLE · UNIVERSE · MORPH · </div></div>
+
+<nav><div class="logo">NEBULA</div><div class="dots" id="dots"></div></nav>
+<div class="hint" id="hint">SCROLL · CLICK<i></i></div>
+
+<main>
+  <section data-shape="0">
+    <div class="eyebrow">01 — 起源</div>
+    <h1 class="split">粒子<span class="grad">宇宙</span></h1>
+    <p class="lead fade">两万颗粒子在你的指尖流动。移动鼠标扰动它们，点击屏幕释放冲击波，向下滚动见证形态的变幻。</p>
+  </section>
+  <section class="right" data-shape="1">
+    <div class="eyebrow">02 — 纠缠</div>
+    <h2 class="split">无限<span class="grad">环结</span></h2>
+    <p class="lead fade">一条永不终结的曲线，在三维空间中自我缠绕。每一个粒子都沿着数学的轨迹寻找归宿。</p>
+  </section>
+  <section data-shape="2">
+    <div class="eyebrow">03 — 星系</div>
+    <h2 class="split">旋臂<span class="grad">银河</span></h2>
+    <div class="cards">
+      <div class="card"><b>20K</b><span>实时 GPU 粒子</span></div>
+      <div class="card"><b>60</b><span>FPS 流畅渲染</span></div>
+      <div class="card"><b>∞</b><span>无限形态变换</span></div>
+    </div>
+  </section>
+  <section class="right" data-shape="3">
+    <div class="eyebrow">04 — 生命</div>
+    <h2 class="split">双螺<span class="grad">旋链</span></h2>
+    <p class="lead fade">生命的密码以螺旋的方式书写。粒子编织成 DNA，在光晕中缓缓旋转。</p>
+  </section>
+  <section class="center" data-shape="4">
+    <div class="eyebrow">05 — 回响</div>
+    <h2 class="split">声波<span class="grad">海洋</span></h2>
+    <p class="lead fade">一切终将化为波动。</p>
+    <a class="btn" href="#" id="restart">回到起点 ↑</a> <a class="btn" href="hub.html" data-page>作品大厅 →</a>
+  </section>
+</main>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+const N = 20000;
+const isMobile = innerWidth < 700;
+
+// ---------- 渲染器 / 场景 ----------
+const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('gl'), antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x04030a, 0.04);
+const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 200);
+camera.position.set(0, 0, 9);
+
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 1.1, 0.6, 0.0);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+// ---------- 形态生成 ----------
+const rand = (a, b) => a + Math.random() * (b - a);
+const shapes = [
+  // 0 斐波那契球
+  (i) => {
+    const phi = Math.acos(1 - 2 * (i + 0.5) / N), th = Math.PI * (1 + Math.sqrt(5)) * i;
+    const r = 2.6 + (Math.random() < 0.15 ? rand(0, 1.2) : 0);
+    return [r * Math.sin(phi) * Math.cos(th), r * Math.sin(phi) * Math.sin(th), r * Math.cos(phi)];
+  },
+  // 1 环面纽结
+  (i) => {
+    const t = (i / N) * Math.PI * 2, p = 2, q = 3, R = 2, r = 0.8;
+    const cx = (R + r * Math.cos(q * t)) * Math.cos(p * t);
+    const cy = (R + r * Math.cos(q * t)) * Math.sin(p * t);
+    const cz = r * Math.sin(q * t);
+    const a = rand(0, Math.PI * 2), s = rand(0, 0.35);
+    return [cx + s * Math.cos(a), cy + s * Math.sin(a), cz + rand(-0.25, 0.25)];
+  },
+  // 2 螺旋星系
+  (i) => {
+    const arms = 4, arm = i % arms, r = Math.pow(Math.random(), 1.6) * 5;
+    const a = r * 1.1 + (arm / arms) * Math.PI * 2;
+    const spread = 0.35 * (1 + r * 0.2);
+    return [Math.cos(a) * r + rand(-spread, spread), rand(-0.15, 0.15) * (5 - r) * 0.4, Math.sin(a) * r + rand(-spread, spread)];
+  },
+  // 3 DNA 双螺旋
+  (i) => {
+    const y = (i / N) * 10 - 5, a = y * 1.6;
+    const k = i % 10;
+    if (k < 8) {
+      const side = k % 2 ? Math.PI : 0;
+      return [Math.cos(a + side) * 1.4 + rand(-.08, .08), y, Math.sin(a + side) * 1.4 + rand(-.08, .08)];
+    }
+    const step = Math.round(y * 3) / 3, aa = step * 1.6, f = rand(-1, 1);
+    return [Math.cos(aa) * 1.4 * f, step, Math.sin(aa) * 1.4 * f];
+  },
+  // 4 波浪平面
+  (i) => {
+    const side = Math.sqrt(N), gx = (i % side) / side - 0.5, gz = Math.floor(i / side) / side - 0.5;
+    const x = gx * 12, z = gz * 12, d = Math.hypot(x, z);
+    return [x, Math.sin(d * 1.5) * 0.5 * Math.exp(-d * 0.12), z];
+  },
+];
+const targets = shapes.map(fn => {
+  const arr = new Float32Array(N * 3);
+  for (let i = 0; i < N; i++) arr.set(fn(i), i * 3);
+  return arr;
+});
+const palettes = [
+  [0x7cf7ff, 0xff5fd2], [0xffb547, 0xff3d6e], [0x9b7bff, 0x4dfff3], [0x4dff9a, 0x3d8bff], [0xff5fd2, 0x7cf7ff],
+];
+const shapeRot = [[0, 0], [0.3, 0], [0.9, 0], [0, 0.2], [0.6, 0]];
+
+// ---------- 粒子 ----------
+const geo = new THREE.BufferGeometry();
+const pos = new Float32Array(N * 3);
+// 初始从中心爆发
+for (let i = 0; i < N * 3; i++) pos[i] = rand(-0.02, 0.02);
+const aRand = new Float32Array(N).map(() => Math.random());
+geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+geo.setAttribute('aRand', new THREE.BufferAttribute(aRand, 1));
+
+const uniforms = {
+  uTime: { value: 0 }, uSize: { value: isMobile ? 40 : 55 },
+  uMouse: { value: new THREE.Vector3(99, 99, 99) },
+  uShock: { value: 1 }, uShockPos: { value: new THREE.Vector3() },
+  uColA: { value: new THREE.Color(palettes[0][0]) }, uColB: { value: new THREE.Color(palettes[0][1]) },
+  uWave: { value: 0 },
+};
+const mat = new THREE.ShaderMaterial({
+  uniforms, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  vertexShader: /* glsl */`
+    uniform float uTime, uSize, uShock, uWave;
+    uniform vec3 uMouse, uShockPos, uColA, uColB;
+    attribute float aRand;
+    varying vec3 vColor; varying float vGlow;
+    void main(){
+      vec3 p = position;
+      // 呼吸般的扰动
+      p += 0.06 * vec3(sin(uTime*1.3 + aRand*40.), cos(uTime*1.1 + aRand*30.), sin(uTime*0.9 + aRand*20.));
+      // 波浪形态时的动态波
+      float d0 = length(p.xz);
+      p.y += uWave * sin(d0*1.5 - uTime*2.0) * 0.6 * exp(-d0*0.1);
+      vec4 world = modelMatrix * vec4(p, 1.0);
+      // 鼠标排斥
+      vec3 dm = world.xyz - uMouse; float dist = length(dm);
+      float push = smoothstep(2.0, 0.0, dist);
+      world.xyz += normalize(dm + 1e-4) * push * 1.2;
+      // 冲击波
+      float sd = length(world.xyz - uShockPos);
+      float ring = uShock * 10.0;
+      float w = exp(-pow((sd - ring) * 1.6, 2.0)) * (1.0 - uShock);
+      world.xyz += normalize(world.xyz - uShockPos + 1e-4) * w * 1.5;
+      vec4 mv = viewMatrix * world;
+      gl_Position = projectionMatrix * mv;
+      gl_PointSize = uSize * (0.3 + aRand) * (1.0 + w * 2.5 + push) / -mv.z;
+      float h = smoothstep(-3.0, 3.0, p.y + p.x * 0.5 + sin(uTime*0.5 + aRand*6.28));
+      vColor = mix(uColA, uColB, h);
+      vGlow = w + push * 0.6;
+    }`,
+  fragmentShader: /* glsl */`
+    varying vec3 vColor; varying float vGlow;
+    void main(){
+      float d = length(gl_PointCoord - 0.5);
+      float a = smoothstep(0.5, 0.0, d);
+      a *= a;
+      gl_FragColor = vec4(vColor + vGlow, a * 0.85);
+    }`,
+});
+const points = new THREE.Points(geo, mat);
+const baseSize = uniforms.uSize.value;
+const group = new THREE.Group();
+group.add(points);
+scene.add(group);
+
+// ---------- 背景星空 ----------
+const starGeo = new THREE.BufferGeometry();
+const starPos = new Float32Array(3000 * 3);
+for (let i = 0; i < 3000; i++) {
+  const r = rand(30, 80), t = rand(0, Math.PI * 2), ph = Math.acos(rand(-1, 1));
+  starPos.set([r * Math.sin(ph) * Math.cos(t), r * Math.sin(ph) * Math.sin(t), r * Math.cos(ph)], i * 3);
+}
+starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+const stars = new THREE.Points(starGeo, new THREE.PointsMaterial({ size: 0.15, color: 0x8899ff, transparent: true, opacity: 0.7, fog: false }));
+scene.add(stars);
+
+// ---------- 轨道光环 ----------
+const rings = [];
+for (let i = 0; i < 3; i++) {
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(3.6 + i * 0.6, 0.006, 8, 200),
+    new THREE.MeshBasicMaterial({ color: palettes[0][i % 2], transparent: true, opacity: 0.5 })
+  );
+  ring.rotation.set(rand(0, Math.PI), rand(0, Math.PI), 0);
+  ring.userData.speed = rand(0.1, 0.3) * (i % 2 ? 1 : -1);
+  rings.push(ring); scene.add(ring);
+}
+
+// ---------- 形态切换 ----------
+let from = new Float32Array(pos), to = targets[0], morphT = 0, current = -1;
+const tmpA = new THREE.Color(), tmpB = new THREE.Color();
+function goTo(idx) {
+  if (idx === current) return;
+  current = idx;
+  from = new Float32Array(geo.attributes.position.array);
+  to = targets[idx];
+  morphT = 0;
+  tmpA.set(palettes[idx][0]); tmpB.set(palettes[idx][1]);
+  // 切换时自动触发一次冲击波
+  uniforms.uShockPos.value.set(0, 0, 0); uniforms.uShock.value = 0;
+  document.querySelectorAll('#dots span').forEach((d, i) => d.classList.toggle('on', i === idx));
+}
+const ease = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+
+// ---------- 交互 ----------
+const mouse = new THREE.Vector2(), mouseSmooth = new THREE.Vector2();
+const raycaster = new THREE.Raycaster();
+const plane = new THREE.Plane();
+const hit = new THREE.Vector3();
+let mouseActive = false;
+addEventListener('pointermove', e => {
+  mouse.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+  mouseActive = true;
+});
+addEventListener('pointerleave', () => mouseActive = false);
+addEventListener('click', e => {
+  if (e.target.closest('a,button,nav,.pt-menu')) return;
+  raycaster.setFromCamera(mouse, camera);
+  plane.setFromNormalAndCoplanarPoint(camera.getWorldDirection(new THREE.Vector3()).negate(), new THREE.Vector3());
+  if (raycaster.ray.intersectPlane(plane, hit)) uniforms.uShockPos.value.copy(hit);
+  uniforms.uShock.value = 0;
+  bloom.strength = 2.6;
+});
+
+// ---------- 滚动 ----------
+let scrollY = 0, scrollSmooth = 0;
+addEventListener('scroll', () => { scrollY = window.scrollY; document.getElementById('hint').style.opacity = scrollY > 50 ? 0 : 1; });
+const sections = [...document.querySelectorAll('section')];
+const dots = document.getElementById('dots');
+sections.forEach(() => dots.appendChild(document.createElement('span')));
+[...dots.children].forEach((d, i) => d.style.pointerEvents = 'auto');
+const io = new IntersectionObserver(entries => entries.forEach(en => {
+  if (en.isIntersecting) { en.target.classList.add('in'); goTo(+en.target.dataset.shape); }
+}), { threshold: 0.5 });
+
+// 逐字拆分
+document.querySelectorAll('.split').forEach(el => {
+  const walk = node => [...node.childNodes].forEach(n => {
+    if (n.nodeType === 3) {
+      const frag = document.createDocumentFragment();
+      [...n.textContent].forEach(c => {
+        const w = document.createElement('span'); w.className = 'split-wrap';
+        const s = document.createElement('span'); s.className = 'ch'; s.textContent = c;
+        w.appendChild(s); frag.appendChild(w);
+      });
+      n.replaceWith(frag);
+    } else walk(n);
+  });
+  walk(el);
+  el.querySelectorAll('.ch').forEach((c, i) => c.style.transitionDelay = i * 0.06 + 's');
+});
+
+document.getElementById('restart').addEventListener('click', e => { e.preventDefault(); scrollTo({ top: 0, behavior: 'smooth' }); });
+
+// 卡片 3D 倾斜
+document.querySelectorAll('.card').forEach(card => {
+  card.addEventListener('pointermove', e => {
+    const r = card.getBoundingClientRect(), x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
+    card.style.transform = `rotateY(${(x - .5) * 24}deg) rotateX(${(.5 - y) * 24}deg) translateZ(10px)`;
+    card.style.setProperty('--mx', x * 100 + '%'); card.style.setProperty('--my', y * 100 + '%');
+  });
+  card.addEventListener('pointerleave', () => card.style.transform = '');
+});
+
+// 自定义光标
+const cur = document.querySelector('.cursor'), ringEl = document.querySelector('.cursor-ring');
+let cx = 0, cy = 0, rx = 0, ry = 0;
+addEventListener('pointermove', e => { cx = e.clientX; cy = e.clientY; });
+document.querySelectorAll('a, .card').forEach(el => {
+  el.addEventListener('pointerenter', () => ringEl.classList.add('hover'));
+  el.addEventListener('pointerleave', () => ringEl.classList.remove('hover'));
+});
+
+// ---------- 主循环 ----------
+const clock = new THREE.Clock();
+function tick() {
+  const dt = Math.min(clock.getDelta(), 0.05), t = clock.elapsedTime;
+  uniforms.uTime.value = t;
+
+  // 形态插值（带随机延迟，粒子错落到达）
+  if (morphT < 1.6) {
+    morphT += dt * 0.7;
+    const arr = geo.attributes.position.array;
+    for (let i = 0; i < N; i++) {
+      const k = ease(Math.min(Math.max((morphT - aRand[i] * 0.6), 0), 1));
+      const j = i * 3;
+      arr[j] = from[j] + (to[j] - from[j]) * k;
+      arr[j + 1] = from[j + 1] + (to[j + 1] - from[j + 1]) * k;
+      arr[j + 2] = from[j + 2] + (to[j + 2] - from[j + 2]) * k;
+    }
+    geo.attributes.position.needsUpdate = true;
+  }
+  // 跟随 BGM 鼓点脉动
+  const beat = window.BGM?.pulse?.() || 0;
+  uniforms.uSize.value = baseSize * (1 + beat * 0.35);
+  uniforms.uColA.value.lerp(tmpA, 0.03);
+  uniforms.uColB.value.lerp(tmpB, 0.03);
+  uniforms.uWave.value += ((current === 4 ? 1 : 0) - uniforms.uWave.value) * 0.03;
+
+  // 冲击波
+  if (uniforms.uShock.value < 1) uniforms.uShock.value = Math.min(1, uniforms.uShock.value + dt * 0.6);
+  bloom.strength += (1.1 - bloom.strength) * 0.05;
+
+  // 旋转与相机
+  scrollSmooth += (scrollY - scrollSmooth) * 0.08;
+  const sp = scrollSmooth / innerHeight;
+  const rot = shapeRot[Math.max(current, 0)];
+  group.rotation.y += dt * 0.12;
+  group.rotation.x += (rot[0] - group.rotation.x) * 0.03;
+  group.rotation.z += (rot[1] - group.rotation.z) * 0.03;
+
+  mouseSmooth.lerp(mouse, 0.06);
+  camera.position.x = Math.sin(sp * 0.8) * 2 + mouseSmooth.x * 1.2;
+  camera.position.y = mouseSmooth.y * 0.8 + Math.sin(sp * 1.3) * 1.5;
+  camera.position.z = 9 + Math.sin(sp * 1.6) * 1.2;
+  camera.lookAt(0, 0, 0);
+
+  // 鼠标世界坐标
+  if (mouseActive) {
+    raycaster.setFromCamera(mouse, camera);
+    plane.setFromNormalAndCoplanarPoint(camera.getWorldDirection(new THREE.Vector3()).negate(), new THREE.Vector3());
+    if (raycaster.ray.intersectPlane(plane, hit)) uniforms.uMouse.value.lerp(hit, 0.2);
+  } else uniforms.uMouse.value.set(99, 99, 99);
+
+  stars.rotation.y = t * 0.01 + sp * 0.1;
+  rings.forEach((r, i) => {
+    r.rotation.x += dt * r.userData.speed; r.rotation.y += dt * r.userData.speed * 0.7;
+    r.material.color.lerp(i % 2 ? tmpB : tmpA, 0.03);
+    r.scale.setScalar(1 + Math.sin(t * 0.8 + i) * 0.05 + beat * 0.04);
+  });
+
+  // 光标
+  rx += (cx - rx) * 0.15; ry += (cy - ry) * 0.15;
+  cur.style.transform = `translate(${cx}px,${cy}px)`;
+  ringEl.style.transform = `translate(${rx}px,${ry}px)`;
+
+  composer.render();
+  requestAnimationFrame(tick);
+}
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight);
+});
+
+// ---------- 加载动画 ----------
+let n = 0;
+const numEl = document.getElementById('loadNum'), barEl = document.getElementById('loadBar');
+const load = setInterval(() => {
+  n = Math.min(100, n + Math.ceil(Math.random() * 9));
+  numEl.textContent = n; barEl.style.width = n + '%';
+  if (n >= 100) {
+    clearInterval(load);
+    setTimeout(() => {
+      document.getElementById('loader').classList.add('done');
+      sections.forEach(s => io.observe(s));
+      goTo(0);
+    }, 300);
+  }
+}, 40);
+tick();
+</script>
+<script src="shared.js"></script>
+</body>
+</html>

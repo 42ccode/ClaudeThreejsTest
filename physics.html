@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>霓虹物理实验室 · Physics Lab</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; background: #04050b; color: #e8f4ff; font-family: "Inter", "PingFang SC", system-ui, sans-serif; user-select: none; -webkit-user-select: none; }
+  #c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; outline: none; touch-action: none; }
+  .mono { font-family: "SF Mono", ui-monospace, Menlo, monospace; }
+  .head { position: fixed; top: 28px; left: 5vw; z-index: 2; pointer-events: none; }
+  .head .tag { font-size: 11px; letter-spacing: .4em; color: #b98bff; }
+  .head h1 { font-size: clamp(36px, 5.5vw, 76px); font-weight: 900; line-height: 1.05; margin-top: 8px; }
+  .head h1 em { font-style: normal; background: linear-gradient(90deg, #5ff8ff, #b98bff, #ff3dbb); -webkit-background-clip: text; color: transparent; }
+  .head p { margin-top: 8px; font-size: 11px; letter-spacing: .25em; color: #7d8bb0; }
+  .score { position: fixed; top: 32px; right: 5vw; z-index: 2; text-align: right; pointer-events: none; }
+  .score small { display: block; font-size: 10px; letter-spacing: .3em; color: #7d8bb0; }
+  .score b { font-size: 56px; font-weight: 200; line-height: 1; }
+  .score b i { font-style: normal; font-size: 16px; color: #7d8bb0; }
+  .charge { position: fixed; left: 0; top: 0; width: 64px; height: 64px; margin: -32px 0 0 -32px; z-index: 4; pointer-events: none; opacity: 0; transition: opacity .2s; }
+  .charge circle { fill: none; stroke-width: 3; }
+  .ctrl { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 5; display: flex; gap: 6px; padding: 8px; border-radius: 999px; border: 1px solid #ffffff22; background: #0a0d18d0; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+  .ctrl button { border: 1px solid transparent; background: none; color: #c3cbe4; padding: 9px 15px; border-radius: 999px; font-size: 13px; letter-spacing: .08em; transition: .3s; white-space: nowrap; }
+  .ctrl button:hover { border-color: #b98bff88; }
+  .ctrl button.on { background: linear-gradient(90deg, #5ff8ff, #b98bff); color: #04050b; font-weight: 700; }
+  .ctrl .sep { width: 1px; background: #ffffff22; margin: 4px 4px; }
+  .ctrl kbd { font-family: "SF Mono", monospace; font-size: 10px; opacity: .55; margin-left: 4px; }
+  .hint { position: fixed; left: 5vw; bottom: 40px; z-index: 2; font-size: 11px; letter-spacing: .25em; color: #7d8bb0; pointer-events: none; }
+  #loading { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: #04050b; font-size: 12px; letter-spacing: .4em; color: #b98bff; transition: opacity .8s; }
+  #loading.hide { opacity: 0; pointer-events: none; }
+  @media (max-width: 760px) {
+    .head { left: 16px; } .score { right: 16px; top: 120px; } .score b { font-size: 36px; } .hint { display: none; }
+    .ctrl { bottom: 84px; flex-wrap: wrap; justify-content: center; border-radius: 22px; width: calc(100% - 32px); }
+    .ctrl button { padding: 8px 10px; font-size: 12px; } .ctrl .sep, .ctrl kbd { display: none; }
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="loading" class="mono">LOADING BABYLON.JS + HAVOK…</div>
+<div class="head">
+  <div class="tag mono">PHYSICS LAB / 08 · BABYLON.JS 7 + HAVOK</div>
+  <h1>霓虹<em>物理实验室</em></h1>
+  <p>刚体动力学 · 辉光层 · 实时阴影 · 镜面反射</p>
+</div>
+<div class="score mono"><small>已击倒 KNOCKED</small><b id="score">0<i> / 0</i></b></div>
+<svg class="charge" id="charge" viewBox="0 0 64 64"><circle cx="32" cy="32" r="26" stroke="#ffffff22" /><circle id="chargeArc" cx="32" cy="32" r="26" stroke="#5ff8ff" stroke-dasharray="163" stroke-dashoffset="163" transform="rotate(-90 32 32)" /></svg>
+<div class="hint mono">点击发射 · 按住蓄力 · 拖拽旋转</div>
+<div class="ctrl">
+  <button data-s="tower" class="on">积木塔</button>
+  <button data-s="pyramid">金字塔</button>
+  <button data-s="domino">多米诺</button>
+  <span class="sep"></span>
+  <button id="bomb">引力炸弹<kbd>B</kbd></button>
+  <button id="slow">慢动作<kbd>Q</kbd></button>
+  <button id="reset">重置<kbd>R</kbd></button>
+</div>
+
+<script src="https://unpkg.com/babylonjs@7.31.0/babylon.js"></script>
+<script src="https://unpkg.com/@babylonjs/havok@1.3.10/lib/umd/HavokPhysics_umd.js"></script>
+<script>
+(async () => {
+  const B = BABYLON;
+  const canvas = document.getElementById('c');
+  const engine = new B.Engine(canvas, true, { stencil: true, preserveDrawingBuffer: false }, true);
+  const scene = new B.Scene(engine);
+  scene.clearColor = new B.Color4(.016, .02, .045, 1);
+  scene.fogMode = B.Scene.FOGMODE_EXP2; scene.fogDensity = .018; scene.fogColor = new B.Color3(.016, .02, .045);
+
+  const havok = await HavokPhysics({ locateFile: () => 'https://unpkg.com/@babylonjs/havok@1.3.10/lib/umd/HavokPhysics.wasm' });
+  const plugin = new B.HavokPlugin(false, havok);   // 固定步长，便于做慢动作
+  scene.enablePhysics(new B.Vector3(0, -9.81, 0), plugin);
+  const physics = scene.getPhysicsEngine();
+
+  // 镜头与灯光
+  const camera = new B.ArcRotateCamera('cam', -Math.PI / 2.3, 1.12, 30, new B.Vector3(0, 4, 0), scene);
+  camera.attachControl(canvas, true);
+  camera.lowerBetaLimit = .35; camera.upperBetaLimit = 1.42;
+  camera.lowerRadiusLimit = 12; camera.upperRadiusLimit = 55;
+  camera.wheelDeltaPercentage = .02; camera.panningSensibility = 0;
+  camera.useAutoRotationBehavior = true;
+  camera.autoRotationBehavior.idleRotationSpeed = .08;
+  camera.autoRotationBehavior.idleRotationWaitTime = 4000;
+
+  new B.HemisphericLight('hemi', new B.Vector3(0, 1, 0), scene).intensity = .35;
+  const sun = new B.DirectionalLight('sun', new B.Vector3(-.6, -1, -.4), scene);
+  sun.position = new B.Vector3(20, 40, 15); sun.intensity = 1.3;
+  const shadows = new B.ShadowGenerator(2048, sun);
+  shadows.usePercentageCloserFiltering = true; shadows.bias = .0008;
+  const glow = new B.GlowLayer('glow', scene, { blurKernelSize: 48 });
+  glow.intensity = .9;
+
+  // 镜面地面 + 发光网格
+  const ground = B.MeshBuilder.CreateGround('ground', { width: 120, height: 120 }, scene);
+  const mirror = new B.MirrorTexture('mirror', 1024, scene, true);
+  mirror.mirrorPlane = new B.Plane(0, -1, 0, 0); mirror.level = .4;
+  const gm = new B.StandardMaterial('gm', scene);
+  gm.diffuseColor = new B.Color3(.015, .018, .035); gm.specularColor = new B.Color3(.05, .05, .08);
+  gm.reflectionTexture = mirror;
+  // 网格线用线段系统绘制：每 2 米一条暗线，每 10 米一条亮线
+  const lines = [], colors = [];
+  for (let i = -60; i <= 60; i += 2) {
+    const c = i % 10 === 0 ? new B.Color4(.18, .45, 1, 1) : new B.Color4(.06, .16, .4, 1);
+    lines.push([new B.Vector3(i, .01, -60), new B.Vector3(i, .01, 60)], [new B.Vector3(-60, .01, i), new B.Vector3(60, .01, i)]);
+    colors.push([c, c], [c, c]);
+  }
+  const grid = B.MeshBuilder.CreateLineSystem('grid', { lines, colors }, scene);
+  grid.isPickable = false;
+  ground.material = gm; ground.receiveShadows = true;
+  glow.addExcludedMesh(ground); glow.addExcludedMesh(grid);
+  const floorCol = B.MeshBuilder.CreateBox('floorCol', { width: 120, height: 1, depth: 120 }, scene);
+  floorCol.position.y = -.5; floorCol.isVisible = false; floorCol.isPickable = false;
+  new B.PhysicsAggregate(floorCol, B.PhysicsShapeType.BOX, { mass: 0, friction: .8, restitution: .1 }, scene);
+
+  // 材质
+  const PALETTE = ['#5ff8ff', '#b98bff', '#ff3dbb', '#ffb547'].map(c => B.Color3.FromHexString(c));
+  const blockMats = PALETTE.map((c, i) => {
+    const m = new B.PBRMaterial('bm' + i, scene);
+    m.albedoColor = new B.Color3(.05, .05, .08); m.metallic = .6; m.roughness = .35;
+    m.emissiveColor = c.scale(.12);
+    return m;
+  });
+
+  // ---------- 场景搭建 ----------
+  let blocks = [], balls = [];
+  const addBlock = (w, h, d, pos, rotY, ci) => {
+    const m = B.MeshBuilder.CreateBox('b', { width: w, height: h, depth: d }, scene);
+    m.position.copyFrom(pos); m.rotation.y = rotY;
+    m.material = blockMats[ci % blockMats.length];
+    m.enableEdgesRendering(); m.edgesWidth = 3; m.edgesColor = PALETTE[ci % PALETTE.length].toColor4(1);
+    shadows.addShadowCaster(m); mirror.renderList.push(m);
+    const agg = new B.PhysicsAggregate(m, B.PhysicsShapeType.BOX, { mass: w * h * d * .6, friction: .6, restitution: .05 }, scene);
+    blocks.push({ mesh: m, agg, y0: pos.y, down: false });
+  };
+  const BUILDERS = {
+    tower() { // 叠叠乐式高塔
+      for (let l = 0; l < 14; l++) for (let k = -1; k <= 1; k++) {
+        const y = .35 + l * .7, alt = l % 2;
+        addBlock(3.3, .66, 1.05, alt ? new B.Vector3(k * 1.1, y, 0) : new B.Vector3(0, y, k * 1.1), alt ? Math.PI / 2 : 0, l);
+      }
+    },
+    pyramid() {
+      const N = 9;
+      for (let l = 0; l < N; l++) for (let i = 0; i < N - l; i++) for (let j = 0; j < N - l; j++)
+        if (l === 0 || i === 0 || j === 0 || i === N - l - 1 || j === N - l - 1 || l > N - 4)
+          addBlock(1, 1, 1, new B.Vector3((i - (N - l - 1) / 2) * 1.02, .5 + l, (j - (N - l - 1) / 2) * 1.02), 0, l);
+    },
+    domino() { // 螺旋多米诺：按固定弧长排布，薄面沿切线方向
+      let a = 0;
+      for (let i = 0; i < 90; i++) {
+        const r = 2.6 + a * .5;
+        addBlock(.25, 2.2, 1.1, new B.Vector3(Math.cos(a) * r, 1.1, Math.sin(a) * r), -(a + Math.PI / 2), Math.floor(i / 6));
+        a += .85 / r;
+      }
+    },
+  };
+  let current = 'tower', builtAt = 0;
+  function build(name) {
+    blocks.forEach(b => { b.agg.dispose(); b.mesh.dispose(); });
+    balls.forEach(b => { b.agg.dispose(); b.trail.dispose(); b.mesh.dispose(); });
+    blocks = []; balls = [];
+    mirror.renderList = [];
+    current = name; builtAt = performance.now();
+    BUILDERS[name]();
+    document.querySelectorAll('[data-s]').forEach(x => x.classList.toggle('on', x.dataset.s === name));
+    camera.target.y = name === 'tower' ? 4.5 : 3;
+  }
+  document.querySelectorAll('[data-s]').forEach(b => b.onclick = () => build(b.dataset.s));
+
+  // ---------- 能量球：点击发射，按住蓄力 ----------
+  const ballMat = new B.StandardMaterial('ball', scene);
+  ballMat.emissiveColor = new B.Color3(.5, 1, 1); ballMat.disableLighting = true;
+  const trailMat = new B.StandardMaterial('trail', scene);
+  trailMat.emissiveColor = new B.Color3(.2, .9, 1); trailMat.disableLighting = true; trailMat.alpha = .6;
+  function shoot(x, y, power) {
+    const ray = scene.createPickingRay(x, y, B.Matrix.Identity(), camera);
+    const r = .35 + power * .35;
+    const s = B.MeshBuilder.CreateSphere('ball', { diameter: r * 2, segments: 16 }, scene);
+    s.material = ballMat; s.position = camera.position.add(ray.direction.scale(2));
+    const agg = new B.PhysicsAggregate(s, B.PhysicsShapeType.SPHERE, { mass: 2 + power * 10, restitution: .45, friction: .3 }, scene);
+    agg.body.setLinearVelocity(ray.direction.scale(32 + power * 40));
+    const trail = new B.TrailMesh('trail', s, scene, r * .9, 40, true);
+    trail.material = trailMat;
+    shadows.addShadowCaster(s); mirror.renderList.push(s);
+    balls.push({ mesh: s, agg, trail });
+    if (balls.length > 24) { const o = balls.shift(); o.agg.dispose(); o.trail.dispose(); o.mesh.dispose(); }
+    sfx('shoot', power);
+  }
+  const charge = document.getElementById('charge'), arc = document.getElementById('chargeArc');
+  let press = null;
+  canvas.addEventListener('pointerdown', e => { press = { x: e.clientX, y: e.clientY, t: performance.now(), moved: false }; });
+  canvas.addEventListener('pointermove', e => {
+    if (!press) return;
+    if (Math.hypot(e.clientX - press.x, e.clientY - press.y) > 6) { press.moved = true; charge.style.opacity = 0; }
+  });
+  canvas.addEventListener('pointerup', e => {
+    if (press && !press.moved) shoot(scene.pointerX, scene.pointerY, Math.min((performance.now() - press.t) / 1200, 1));
+    press = null; charge.style.opacity = 0;
+  });
+
+  // ---------- 引力炸弹：先吸再炸 ----------
+  let bomb = null;
+  const core = B.MeshBuilder.CreateSphere('core', { diameter: 1, segments: 24 }, scene);
+  const coreMat = new B.StandardMaterial('cm', scene); coreMat.emissiveColor = new B.Color3(1, .3, .9); coreMat.disableLighting = true;
+  core.material = coreMat; core.isVisible = false; core.isPickable = false;
+  const wave = B.MeshBuilder.CreateTorus('wave', { diameter: 2, thickness: .08, tessellation: 64 }, scene);
+  const waveMat = new B.StandardMaterial('wm', scene); waveMat.emissiveColor = new B.Color3(.4, 1, 1); waveMat.disableLighting = true;
+  wave.material = waveMat; wave.isVisible = false; wave.isPickable = false;
+  function dropBomb() {
+    if (bomb) return;
+    const c = blocks.reduce((a, b) => a.addInPlace(b.mesh.position), B.Vector3.Zero()).scale(1 / Math.max(blocks.length, 1));
+    bomb = { pos: new B.Vector3(c.x, Math.max(c.y, 2) + 1.5, c.z), t: 0, blown: false };
+    core.position.copyFrom(bomb.pos); core.isVisible = true;
+    document.getElementById('bomb').classList.add('on');
+    sfx('bomb');
+  }
+
+  // ---------- 慢动作 ----------
+  let slow = 1, slowT = 1;
+  const toggleSlow = () => { slowT = slowT === 1 ? .2 : 1; document.getElementById('slow').classList.toggle('on', slowT !== 1); };
+
+  document.getElementById('bomb').onclick = dropBomb;
+  document.getElementById('slow').onclick = toggleSlow;
+  document.getElementById('reset').onclick = () => build(current);
+  addEventListener('keydown', e => {
+    if (e.key === 'b') dropBomb(); if (e.key === 'q') toggleSlow(); if (e.key === 'r') build(current);
+  });
+
+  // ---------- 音效（随 BGM 开关） ----------
+  let actx;
+  function sfx(type, p = 0) {
+    if (!window.BGM?.playing) return;
+    actx ??= new AudioContext();
+    const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain();
+    if (type === 'shoot') { o.type = 'triangle'; o.frequency.setValueAtTime(900 - p * 500, t); o.frequency.exponentialRampToValueAtTime(120, t + .25); g.gain.setValueAtTime(.15, t); g.gain.exponentialRampToValueAtTime(.001, t + .3); }
+    if (type === 'bomb') { o.type = 'sine'; o.frequency.setValueAtTime(60, t); o.frequency.exponentialRampToValueAtTime(400, t + 1.6); g.gain.setValueAtTime(.001, t); g.gain.exponentialRampToValueAtTime(.2, t + 1.5); g.gain.exponentialRampToValueAtTime(.001, t + 1.7); }
+    if (type === 'boom') { o.type = 'sawtooth'; o.frequency.setValueAtTime(110, t); o.frequency.exponentialRampToValueAtTime(30, t + .8); g.gain.setValueAtTime(.3, t); g.gain.exponentialRampToValueAtTime(.001, t + 1); }
+    o.connect(g).connect(actx.destination); o.start(t); o.stop(t + 2);
+  }
+
+  // ---------- 主循环 ----------
+  const scoreEl = document.getElementById('score');
+  const tmp = new B.Vector3();
+  scene.onBeforeRenderObservable.add(() => {
+    const dt = Math.min(engine.getDeltaTime() / 1000, 1 / 30);
+    slow += (slowT - slow) * Math.min(dt * 5, 1);
+    physics.setTimeStep(dt * slow);
+
+    if (press && !press.moved) {
+      const k = Math.min((performance.now() - press.t) / 1200, 1);
+      if (k > .08) { charge.style.opacity = 1; charge.style.transform = `translate(${press.x}px,${press.y}px)`; arc.style.strokeDashoffset = 163 * (1 - k); arc.style.stroke = k >= 1 ? '#ff3dbb' : '#5ff8ff'; }
+    }
+
+    if (bomb) {
+      bomb.t += dt * slow;
+      const pull = bomb.t < 1.6;
+      core.scaling.setAll(pull ? .5 + bomb.t * .9 + Math.sin(bomb.t * 40) * .08 : Math.max(0, 2 - (bomb.t - 1.6) * 6));
+      blocks.concat(balls).forEach(o => {
+        const b = o.agg.body;
+        o.mesh.position.subtractToRef(bomb.pos, tmp);
+        const d = Math.max(tmp.length(), .8);
+        if (pull) b.applyForce(tmp.normalize().scale(-60 * b.getMassProperties().mass / d), o.mesh.position);
+        else if (!bomb.blown) b.applyImpulse(tmp.normalize().scale(28 * b.getMassProperties().mass / Math.sqrt(d)), o.mesh.position);
+      });
+      if (!pull && !bomb.blown) {
+        bomb.blown = true; wave.isVisible = true; wave.position.copyFrom(bomb.pos); wave.scaling.setAll(1);
+        glow.intensity = 2.5; sfx('boom');
+      }
+      if (bomb.blown) { const w = (bomb.t - 1.6) * 30; wave.scaling.setAll(1 + w); waveMat.alpha = Math.max(0, 1 - (bomb.t - 1.6) * 1.5); }
+      if (bomb.t > 2.4) { bomb = null; core.isVisible = false; wave.isVisible = false; document.getElementById('bomb').classList.remove('on'); }
+    }
+    glow.intensity += (.9 - glow.intensity) * Math.min(dt * 3, 1);
+
+    let down = 0;
+    const settling = performance.now() - builtAt < 1500;   // 刚搭好时先让积木落稳，再记录基准高度
+    blocks.forEach(b => {
+      if (settling) { b.y0 = b.mesh.position.y; return; }
+      if (!b.down) { const up = b.mesh.getDirection(B.Axis.Y); if (b.mesh.position.y < b.y0 - .8 || Math.abs(up.y) < .5) b.down = true; }
+      if (b.down) down++;
+    });
+    scoreEl.innerHTML = `${down}<i> / ${blocks.length}</i>`;
+  });
+
+  build('tower');
+  engine.runRenderLoop(() => scene.render());
+  addEventListener('resize', () => engine.resize());
+  document.getElementById('loading').classList.add('hide');
+})();
+</script>
+<script src="shared.js"></script>
+</body>
+</html>

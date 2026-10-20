@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>事件视界 · Black Hole</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; background: #000; color: #f3ead8; font-family: "Inter", "PingFang SC", system-ui, sans-serif; user-select: none; -webkit-user-select: none; }
+  canvas { position: fixed; inset: 0; width: 100% !important; height: 100% !important; display: block; touch-action: none; }
+  .mono { font-family: "SF Mono", ui-monospace, Menlo, monospace; }
+  .head { position: fixed; top: 28px; left: 5vw; z-index: 2; pointer-events: none; }
+  .head .tag { font-size: 11px; letter-spacing: .4em; color: #ffb36b; }
+  .head h1 { font-size: clamp(44px, 7vw, 104px); font-weight: 200; letter-spacing: .12em; margin-top: 8px; }
+  .head p { margin-top: 8px; font-size: 12px; letter-spacing: .25em; color: #a89f8d; }
+  .data { position: fixed; right: 5vw; top: 50%; transform: translateY(-50%); z-index: 2; display: grid; gap: 18px; text-align: right; pointer-events: none; }
+  .data small { display: block; font-size: 10px; letter-spacing: .3em; color: #8d8577; }
+  .data b { font-size: 22px; font-weight: 300; }
+  .ctrl { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 5; display: flex; gap: 8px; padding: 8px; border-radius: 999px; border: 1px solid #ffffff22; background: #0c0a08c0; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+  .ctrl button { border: 1px solid transparent; background: none; color: #d8cfbd; padding: 9px 16px; border-radius: 999px; font-size: 13px; letter-spacing: .1em; transition: .3s; white-space: nowrap; }
+  .ctrl button:hover { border-color: #ffb36b88; }
+  .ctrl button.on { background: linear-gradient(90deg, #ffb36b, #ff6a3d); color: #120a04; font-weight: 700; }
+  .hint { position: fixed; left: 5vw; bottom: 40px; z-index: 2; font-size: 11px; letter-spacing: .3em; color: #8d8577; pointer-events: none; }
+  #fps { color: #ffb36b; }
+  @media (max-width: 760px) {
+    .head { left: 16px; } .data { display: none; } .hint { display: none; }
+    .ctrl { bottom: 84px; flex-wrap: wrap; justify-content: center; border-radius: 22px; width: calc(100% - 32px); }
+    .ctrl button { padding: 8px 10px; font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+<div class="head">
+  <div class="tag mono">BLACK HOLE / 07 · POWERED BY OGL</div>
+  <h1>事件视界</h1>
+  <p>实时广义相对论光线追踪 · 引力透镜 · 多普勒增亮</p>
+</div>
+<div class="data mono">
+  <div><small>史瓦西半径 Rs</small><b>1.00</b></div>
+  <div><small>光子球 PHOTON SPHERE</small><b>1.50 Rs</b></div>
+  <div><small>最内稳定轨道 ISCO</small><b>3.00 Rs</b></div>
+  <div><small>观测距离 DISTANCE</small><b id="dist">22.0 Rs</b></div>
+  <div><small>帧率 FPS</small><b id="fps">--</b></div>
+</div>
+<div class="hint mono">拖拽环绕 · 滚轮靠近 · 双击跃迁</div>
+<div class="ctrl">
+  <button data-v="edge" class="on">星际穿越</button>
+  <button data-v="tilt">斜视</button>
+  <button data-v="top">俯视</button>
+  <button id="spin">盘面加速</button>
+  <button id="lens">关闭透镜</button>
+</div>
+
+<script type="module">
+import { Renderer, Program, Mesh, Triangle } from 'https://unpkg.com/ogl@1.0.11/src/index.js';
+
+const big = innerWidth * innerHeight * devicePixelRatio ** 2 > 2.2e6;
+const renderer = new Renderer({ dpr: Math.min(devicePixelRatio, 1.5) * (big ? .6 : 1), antialias: false });
+const gl = renderer.gl;
+document.body.prepend(gl.canvas);
+
+const program = new Program(gl, {
+  vertex: /* glsl */`
+    attribute vec2 position;
+    void main(){ gl_Position = vec4(position, 0., 1.); }`,
+  fragment: /* glsl */`
+    precision highp float;
+    uniform vec2 uRes; uniform float uTime, uSpin, uLens; uniform vec3 uCam;
+
+    float hash(vec3 p){ p = fract(p * .3183099 + .1); p *= 17.; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+    float hash2(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+    float noise(vec2 p){ vec2 i = floor(p), f = fract(p), u = f*f*(3. - 2.*f);
+      return mix(mix(hash2(i), hash2(i + vec2(1, 0)), u.x), mix(hash2(i + vec2(0, 1)), hash2(i + vec2(1, 1)), u.x), u.y); }
+    float fbm(vec2 p){ float v = 0., a = .5; for (int i = 0; i < 5; i++) { v += a * noise(p); p *= 2.03; a *= .5; } return v; }
+
+    // 背景：三层星空 + 星云（被透镜扭曲后采样）
+    vec3 sky(vec3 d){
+      vec3 c = vec3(0.);
+      for (int i = 0; i < 3; i++) {
+        float sc = 70. + float(i) * 110.;
+        vec3 q = d * sc, id = floor(q), f = fract(q) - .5;
+        float h = hash(id);
+        c += step(.986, h) * smoothstep(.32, 0., length(f)) * mix(vec3(.6, .7, 1.), vec3(1., .8, .6), hash(id + 3.)) * (.6 + .4 * sin(uTime * 2. + h * 60.));
+      }
+      vec2 sp = vec2(atan(d.z, d.x), asin(clamp(d.y, -1., 1.)));
+      c += vec3(.28, .1, .38) * pow(fbm(sp * 2.2 + 3.), 3.) * 1.6;
+      c += vec3(.05, .12, .28) * pow(fbm(sp * 3.7 - 1.7), 4.) * 2.4;
+      return c;
+    }
+
+    // 吸积盘：开普勒转速 + 温度梯度 + 多普勒增亮
+    vec3 disk(vec3 p, vec3 rd, out float a){
+      float r = length(p.xz);
+      a = 0.;
+      if (r < 2.6 || r > 12.) return vec3(0.);
+      float ang = atan(p.z, p.x);
+      float sw = ang + uTime * uSpin * 2.2 * pow(r, -1.5);
+      float n = fbm(vec2(sw * 3., r * 1.4 - uTime * .15)) * fbm(vec2(sw * 9., r * 4.5));
+      float dens = smoothstep(2.6, 3.3, r) * smoothstep(12., 5.5, r) * (.35 + 1.6 * n);
+      float T = pow(3. / r, 1.3);
+      vec3 col = mix(vec3(1., .3, .06), vec3(1., .82, .55), clamp(T, 0., 1.));
+      col = mix(col, vec3(.75, .88, 1.), smoothstep(.9, 1.05, T));
+      vec3 vel = normalize(vec3(-p.z, 0., p.x)) * .55 / sqrt(max(r - 1., .6));
+      float dop = clamp(1. + 2.4 * dot(vel, -rd), .2, 3.);
+      a = clamp(dens, 0., 1.);
+      return col * dens * T * pow(dop, 3.) * 1.4;
+    }
+
+    void main(){
+      vec2 uv = (gl_FragCoord.xy - .5 * uRes) / uRes.y;
+      vec3 ro = uCam.z * vec3(cos(uCam.y) * sin(uCam.x), sin(uCam.y), cos(uCam.y) * cos(uCam.x));
+      vec3 fw = normalize(-ro), rt = normalize(cross(fw, vec3(0., 1., 0.))), up = cross(rt, fw);
+      vec3 p = ro, v = normalize(fw * 1.7 + uv.x * rt + uv.y * up);
+      float h2 = dot(cross(p, v), cross(p, v));
+      vec3 col = vec3(0.); float tr = 1., minR = 1e3; bool hole = false;
+      for (int i = 0; i < 260; i++) {
+        float r = length(p);
+        minR = min(minR, r);
+        float dt = clamp(.1 * r, .03, 1.2);
+        vec3 pp = p;
+        v += -1.5 * h2 * p / pow(r, 5.) * dt * uLens;   // 史瓦西测地线（Rs = 1）
+        p += v * dt;
+        if (pp.y * p.y < 0.) {
+          vec3 pc = mix(pp, p, pp.y / (pp.y - p.y));
+          float a; vec3 dc = disk(pc, normalize(v), a);
+          col += tr * dc; tr *= 1. - a * .85;
+          if (tr < .02) break;
+        }
+        if (r < 1.) { hole = true; break; }
+        if (r > 60.) break;
+      }
+      if (!hole) col += tr * sky(normalize(v));
+      col += vec3(1., .65, .35) * exp(-pow((minR - 1.5) * 5., 2.)) * .25 * tr * uLens;  // 光子环
+      col = 1. - exp(-col * 1.25);
+      col *= 1. - .25 * dot(uv, uv);
+      gl_FragColor = vec4(pow(col, vec3(.92)), 1.);
+    }`,
+  uniforms: { uRes: { value: [1, 1] }, uTime: { value: 0 }, uSpin: { value: 1 }, uLens: { value: 1 }, uCam: { value: [0, .1, 22] } },
+});
+const mesh = new Mesh(gl, { geometry: new Triangle(gl), program });
+
+function resize() {
+  renderer.setSize(innerWidth, innerHeight);
+  program.uniforms.uRes.value = [gl.canvas.width, gl.canvas.height];
+}
+addEventListener('resize', resize); resize();
+
+// 镜头：拖拽环绕、滚轮缩放、预设视角平滑过渡
+const cam = { yaw: .3, pitch: .1, dist: 22 }, goal = { ...cam };
+const VIEWS = { edge: [.1, 22], tilt: [.45, 20], top: [1.25, 26] };
+let drag = null, auto = true, spinT = 1, lensT = 1;
+gl.canvas.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY }; auto = false; gl.canvas.setPointerCapture(e.pointerId); });
+gl.canvas.addEventListener('pointermove', e => {
+  if (!drag) return;
+  goal.yaw -= (e.clientX - drag.x) * .006;
+  goal.pitch = Math.min(1.45, Math.max(-1.45, goal.pitch + (e.clientY - drag.y) * .005));
+  drag = { x: e.clientX, y: e.clientY };
+});
+addEventListener('pointerup', () => { drag = null; setTimeout(() => auto = true, 2500); });
+addEventListener('wheel', e => { goal.dist = Math.min(45, Math.max(7, goal.dist * (1 + Math.sign(e.deltaY) * .08))); }, { passive: true });
+gl.canvas.addEventListener('dblclick', () => { goal.dist = goal.dist > 12 ? 8 : 22; });
+document.querySelectorAll('[data-v]').forEach(b => b.onclick = () => {
+  [goal.pitch, goal.dist] = VIEWS[b.dataset.v];
+  document.querySelectorAll('[data-v]').forEach(x => x.classList.toggle('on', x === b));
+});
+const spinBtn = document.getElementById('spin'), lensBtn = document.getElementById('lens');
+spinBtn.onclick = () => { spinT = spinT === 1 ? 4 : 1; spinBtn.classList.toggle('on', spinT !== 1); };
+lensBtn.onclick = () => { lensT = lensT ? 0 : 1; lensBtn.classList.toggle('on', !lensT); lensBtn.textContent = lensT ? '关闭透镜' : '开启透镜'; };
+
+const distEl = document.getElementById('dist'), fpsEl = document.getElementById('fps');
+let last = performance.now(), frames = 0, fpsT = last, time = 0;
+requestAnimationFrame(function loop(now) {
+  const dt = Math.min((now - last) / 1000, .1); last = now;
+  if (auto) goal.yaw += dt * .05;
+  for (const k in cam) cam[k] += (goal[k] - cam[k]) * Math.min(dt * 4, 1);
+  const u = program.uniforms;
+  u.uSpin.value += (spinT - u.uSpin.value) * dt * 2;
+  u.uLens.value += (lensT - u.uLens.value) * dt * 3;
+  time += dt * u.uSpin.value;
+  u.uTime.value = time;
+  u.uCam.value = [cam.yaw, cam.pitch, cam.dist];
+  renderer.render({ scene: mesh });
+  frames++;
+  if (now - fpsT > 500) { fpsEl.textContent = Math.round(frames * 1000 / (now - fpsT)); frames = 0; fpsT = now; distEl.textContent = cam.dist.toFixed(1) + ' Rs'; }
+  requestAnimationFrame(loop);
+});
+</script>
+<script src="shared.js"></script>
+</body>
+</html>

@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>超空间跃迁 · Warp</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; background: #000; color: #bff; font-family: "SF Mono", ui-monospace, Menlo, monospace; user-select: none; -webkit-user-select: none; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  .hud { position: fixed; inset: 0; pointer-events: none; z-index: 2; }
+  .frame { position: absolute; inset: 20px; }
+  .frame i { position: absolute; width: 28px; height: 28px; border: 1px solid #7cf7ff88; }
+  .frame i:nth-child(1) { top: 0; left: 0; border-right: 0; border-bottom: 0; }
+  .frame i:nth-child(2) { top: 0; right: 0; border-left: 0; border-bottom: 0; }
+  .frame i:nth-child(3) { bottom: 0; left: 0; border-right: 0; border-top: 0; }
+  .frame i:nth-child(4) { bottom: 0; right: 0; border-left: 0; border-top: 0; }
+  .tl { position: absolute; top: 34px; left: 44px; font-size: 11px; letter-spacing: .3em; line-height: 2; }
+  .tl b { color: #ff5fd2; }
+  .center { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); text-align: center; width: 90%; }
+  h1 { font-family: "PingFang SC", system-ui, sans-serif; font-weight: 900; font-size: clamp(44px, 9vw, 140px); letter-spacing: .05em; color: #fff; text-shadow: 0 0 30px #7cf7ff, 0 0 70px #ff5fd2; transition: opacity .6s, letter-spacing 1s, filter .6s; }
+  .sub { margin-top: 18px; font-size: 12px; letter-spacing: .5em; color: #8bd; transition: opacity .6s; animation: blink 1.6s infinite; }
+  @keyframes blink { 50% { opacity: .35; } }
+  body.warp h1 { opacity: 0; letter-spacing: .7em; filter: blur(10px); }
+  body.warp .sub { opacity: 0; }
+  .bl { position: absolute; bottom: 44px; left: 44px; font-size: 11px; line-height: 1.8; letter-spacing: .25em; }
+  .bl b { font-size: 44px; color: #fff; display: block; letter-spacing: 0; font-weight: 300; }
+  .br { position: absolute; bottom: 110px; right: 44px; font-size: 11px; letter-spacing: .25em; text-align: right; line-height: 1.8; }
+  .gauge { position: absolute; bottom: 48px; left: 50%; transform: translateX(-50%); width: min(380px, 40vw); }
+  .gauge .bar { height: 3px; background: #ffffff15; overflow: hidden; }
+  .gauge .bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #7cf7ff, #ff5fd2); box-shadow: 0 0 12px #ff5fd2; }
+  .gauge .ticks { display: flex; justify-content: space-between; font-size: 9px; color: #7cf7ff88; margin-top: 6px; }
+  .flash { position: fixed; inset: 0; background: radial-gradient(circle, #fff, #7cf7ff 40%, transparent 75%); opacity: 0; pointer-events: none; z-index: 3; transition: opacity 1s; }
+  @media (max-width: 700px) { .tl, .bl { left: 28px; } .br { display: none; } .gauge { width: 50vw; left: auto; right: 28px; transform: none; bottom: 110px; } }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div class="hud">
+  <div class="frame"><i></i><i></i><i></i><i></i></div>
+  <div class="tl">WARP DRIVE / 03<br>STATUS: <b id="status">STANDBY</b></div>
+  <div class="center"><h1>超空间跃迁</h1><div class="sub">按住鼠标 / 空格 启动引擎</div></div>
+  <div class="bl">VELOCITY<b id="vel">0.00 c</b>DIST <span id="dist">0</span> LY</div>
+  <div class="br">SECTOR <span id="sector">A-001</span><br>FLUX <span id="flux">0.00</span></div>
+  <div class="gauge"><div class="bar"><i id="bar"></i></div><div class="ticks"><span>0</span><span>2</span><span>4</span><span>6</span><span>8</span><span>MAX</span></div></div>
+</div>
+<div class="flash" id="flash"></div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('gl'), antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0x000000, 60, 300);
+const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.1, 500);
+
+// 星光拖尾（实例化）
+const COUNT = innerWidth < 700 ? 1500 : 3500;
+const streaks = new THREE.InstancedMesh(new THREE.BoxGeometry(0.035, 0.035, 1), new THREE.MeshBasicMaterial(), COUNT);
+const sx = new Float32Array(COUNT), sy = new Float32Array(COUNT), sz = new Float32Array(COUNT);
+const palette = [0x7cf7ff, 0xff5fd2, 0xffffff, 0x9b7bff, 0xffffff];
+const col = new THREE.Color();
+for (let i = 0; i < COUNT; i++) {
+  const a = Math.random() * Math.PI * 2, r = 2 + Math.pow(Math.random(), 0.6) * 25;
+  sx[i] = Math.cos(a) * r; sy[i] = Math.sin(a) * r; sz[i] = -Math.random() * 300;
+  streaks.setColorAt(i, col.set(palette[i % palette.length]));
+}
+scene.add(streaks);
+
+// 扭曲的六边形隧道
+const RINGS = 48, GAP = 7;
+const rings = [];
+for (let i = 0; i < RINGS; i++) {
+  const pts = [];
+  for (let k = 0; k < 6; k++) { const a = k / 6 * Math.PI * 2; pts.push(new THREE.Vector3(Math.cos(a) * 7, Math.sin(a) * 7, 0)); }
+  const ring = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0x7cf7ff, transparent: true }));
+  ring.position.z = -i * GAP;
+  rings.push(ring); scene.add(ring);
+}
+
+// 远方的虫洞光核
+const core = new THREE.Mesh(new THREE.SphereGeometry(6, 32, 32), new THREE.MeshBasicMaterial({ color: 0xffffff, fog: false }));
+core.position.z = -320;
+scene.add(core);
+
+// 后期：泛光 + 色差 + 径向模糊 + 扫描线
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 1.2, 0.5, 0.0);
+composer.addPass(bloom);
+const fx = new ShaderPass({
+  uniforms: { tDiffuse: { value: null }, uAmt: { value: 0 }, uTime: { value: 0 } },
+  vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }`,
+  fragmentShader: /* glsl */`
+    uniform sampler2D tDiffuse; uniform float uAmt, uTime; varying vec2 vUv;
+    float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+    void main(){
+      vec2 d = vUv - .5; float r = length(d);
+      vec3 c = vec3(0.);
+      for (int i = 0; i < 8; i++) {
+        float s = 1. - float(i) * .012 * uAmt;
+        vec2 off = d * (.004 + .03*uAmt) * r;
+        vec2 p = .5 + d*s;
+        c.r += texture2D(tDiffuse, p + off).r;
+        c.g += texture2D(tDiffuse, p).g;
+        c.b += texture2D(tDiffuse, p - off).b;
+      }
+      c /= 8.;
+      c *= .94 + .06*sin(vUv.y*900. + uTime*20.);
+      c += (hash(vUv + uTime) - .5) * .06;
+      c *= 1. - r*r*1.1;
+      gl_FragColor = vec4(c, 1.);
+    }`,
+});
+composer.addPass(fx);
+composer.addPass(new OutputPass());
+
+// 交互
+let warp = false, speed = 28, dist = 0, flashed = false;
+const mouse = new THREE.Vector2();
+const setWarp = v => { warp = v; document.body.classList.toggle('warp', v); if (!v) flashed = false; };
+addEventListener('pointerdown', e => { if (!e.target.closest('button,a,nav')) setWarp(true); });
+addEventListener('pointerup', () => setWarp(false));
+addEventListener('pointercancel', () => setWarp(false));
+addEventListener('keydown', e => { if (e.code === 'Space') { e.preventDefault(); setWarp(true); } });
+addEventListener('keyup', e => { if (e.code === 'Space') setWarp(false); });
+addEventListener('pointermove', e => mouse.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1));
+
+const $ = id => document.getElementById(id);
+const dummy = new THREE.Object3D();
+const clock = new THREE.Clock();
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 0.05), t = clock.elapsedTime;
+  const target = warp ? 320 : 28;
+  speed += (target - speed) * (warp ? 0.025 : 0.05);
+  const k = Math.max(0, (speed - 28) / 292); // 0..1 跃迁强度
+  dist += speed * dt * 0.01;
+
+  for (let i = 0; i < COUNT; i++) {
+    sz[i] += speed * dt;
+    if (sz[i] > 5) sz[i] -= 305;
+    dummy.position.set(sx[i], sy[i], sz[i]);
+    dummy.scale.set(1, 1, 1 + speed * 0.12);
+    dummy.updateMatrix();
+    streaks.setMatrixAt(i, dummy.matrix);
+  }
+  streaks.instanceMatrix.needsUpdate = true;
+
+  rings.forEach((r, i) => {
+    r.position.z += speed * dt * 0.6;
+    if (r.position.z > 8) r.position.z -= RINGS * GAP;
+    r.rotation.z = r.position.z * 0.015 + t * 0.3;
+    r.material.color.setHSL((0.5 + r.position.z * 0.002 + t * 0.05) % 1, 1, 0.6);
+    r.material.opacity = 0.25 + k * 0.6;
+    r.scale.setScalar(1 + Math.sin(t * 2 + i * 0.4) * 0.05 + k * 0.3 + (window.BGM?.pulse?.() || 0) * 0.08);
+  });
+
+  camera.fov = 70 + k * 45;
+  camera.updateProjectionMatrix();
+  const shake = k * 0.06;
+  camera.position.set(mouse.x * 1.5 + (Math.random() - .5) * shake, mouse.y * 1.0 + (Math.random() - .5) * shake, 0);
+  camera.rotation.z += ((-mouse.x * 0.3 + t * 0.05 * k * 4) - camera.rotation.z) * 0.05;
+  core.scale.setScalar(1 + k * 1.5 + Math.sin(t * 3) * 0.05);
+
+  fx.uniforms.uAmt.value = k;
+  fx.uniforms.uTime.value = t;
+  bloom.strength = 1.2 + k * 1.3;
+
+  if (k > 0.92 && !flashed) { flashed = true; $('flash').style.transition = 'none'; $('flash').style.opacity = 0.9; requestAnimationFrame(() => { $('flash').style.transition = ''; $('flash').style.opacity = 0; }); }
+  $('vel').textContent = (k * 9.97).toFixed(2) + ' c';
+  $('bar').style.width = (k * 100) + '%';
+  $('dist').textContent = Math.floor(dist).toLocaleString();
+  $('flux').textContent = (k * 3.14 + Math.random() * 0.05).toFixed(2);
+  $('sector').textContent = 'A-' + String(Math.floor(dist / 50) % 1000).padStart(3, '0');
+  $('status').textContent = k > 0.9 ? 'HYPERSPACE' : k > 0.05 ? 'ACCELERATING' : 'STANDBY';
+
+  composer.render();
+});
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight);
+});
+</script>
+<script src="shared.js"></script>
+</body>
+</html>

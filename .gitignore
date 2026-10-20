@@ -1,0 +1,19 @@
+# 系统与编辑器
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# 依赖与构建产物（以后引入打包工具时用得上）
+node_modules/
+dist/
+.cache/
+
+# 日志与本地环境
+*.log
+.env
+.env.*
+
+# Claude Code 本地设置（launch.json 保留，用于预览服务器）
+.claude/settings.local.json

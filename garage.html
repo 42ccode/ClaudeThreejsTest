@@ -1,0 +1,853 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>跑车解构 · Garage</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; background: #05060c; color: #e8f4ff; font-family: "Inter", "PingFang SC", system-ui, sans-serif; user-select: none; -webkit-user-select: none; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  .mono { font-family: "SF Mono", ui-monospace, Menlo, monospace; }
+  button { font-family: inherit; }
+
+  .head { position: fixed; top: 28px; left: 5vw; z-index: 2; pointer-events: none; }
+  .head .tag { font-size: 11px; letter-spacing: .4em; color: #5ff8ff; }
+  .head h1 { font-size: clamp(40px, 6vw, 88px); font-weight: 900; letter-spacing: -.02em; line-height: 1; margin-top: 10px; }
+  .head h1 em { font-style: normal; background: linear-gradient(90deg, #5ff8ff, #ff3dbb); -webkit-background-clip: text; color: transparent; }
+  .head p { margin-top: 10px; font-size: 11px; letter-spacing: .25em; color: #7d8bb0; }
+
+  .specs { position: fixed; top: 50%; right: 5vw; transform: translateY(-50%); z-index: 2; display: grid; gap: 22px; pointer-events: none; transition: opacity .4s; }
+  .spec { border-left: 2px solid #ffffff22; padding-left: 14px; }
+  .spec small { display: block; font-size: 10px; letter-spacing: .3em; color: #7d8bb0; }
+  .spec b { font-size: 34px; font-weight: 300; }
+  .spec b i { font-style: normal; font-size: 12px; color: #5ff8ff; margin-left: 4px; }
+  .spec .bar { height: 2px; margin-top: 6px; background: #ffffff12; width: 160px; }
+  .spec .bar span { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #5ff8ff, #ff3dbb); transition: width 1.6s cubic-bezier(.2,.9,.2,1); }
+
+  .paint { position: fixed; left: 5vw; bottom: 104px; z-index: 4; display: flex; align-items: center; gap: 10px; font-size: 10px; letter-spacing: .3em; color: #7d8bb0; }
+  .paint button { width: 22px; height: 22px; border-radius: 50%; border: 2px solid #ffffff30; background: var(--c); transition: transform .3s, border-color .3s; }
+  .paint button.on { border-color: #fff; transform: scale(1.25); box-shadow: 0 0 14px -2px var(--g); }
+  .paint span { min-width: 4em; color: #fff; letter-spacing: .15em; font-size: 11px; }
+
+  .ctrl { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 5; display: flex; align-items: center; gap: 12px; padding: 8px; border-radius: 999px; border: 1px solid #ffffff22; background: #0a0d18d0; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+  .seg { position: relative; display: flex; border-radius: 999px; background: #ffffff0a; padding: 3px; }
+  .seg i { position: absolute; top: 3px; bottom: 3px; left: 3px; border-radius: 999px; background: linear-gradient(90deg, #5ff8ff, #ff3dbb); transition: transform .45s cubic-bezier(.2,.9,.2,1), width .45s; }
+  .seg button { position: relative; z-index: 1; border: 0; background: none; color: #b9c4e0; padding: 9px 18px; border-radius: 999px; font-size: 13px; letter-spacing: .12em; transition: color .3s; white-space: nowrap; }
+  .seg button.on { color: #05060c; font-weight: 700; }
+  .ctrl .rng { display: flex; align-items: center; gap: 8px; font-size: 10px; color: #7d8bb0; }
+  .ctrl input[type=range] { width: 120px; accent-color: #ff3dbb; }
+  .ctrl .val { width: 34px; color: #fff; }
+  .ctrl > button { border: 1px solid #ffffff30; background: transparent; color: #fff; padding: 9px 16px; border-radius: 999px; font-size: 13px; letter-spacing: .1em; transition: .3s; white-space: nowrap; }
+  .ctrl > button:hover { border-color: #5ff8ff; }
+  .ctrl > button.on { background: #5ff8ff; color: #05060c; border-color: #5ff8ff; }
+
+  /* 两侧引线标注 */
+  #leaders { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 3; }
+  #leaders path { fill: none; stroke-width: 1; }
+  #labels { position: fixed; inset: 0; pointer-events: none; z-index: 3; }
+  .co { position: absolute; top: 0; white-space: nowrap; opacity: 0; transition: opacity .25s; font-size: 12px; line-height: 1.2; }
+  .co b { display: block; font-size: 13px; color: #fff; font-weight: 600; }
+  .co small { display: block; font-size: 9px; line-height: 1.3; letter-spacing: .15em; color: #7d8bb0; }
+  .co.L { text-align: right; padding-right: 8px; border-right: 2px solid #ff3dbb; }
+  .co.R { padding-left: 8px; border-left: 2px solid #5ff8ff; }
+  .co.hot b { color: #5ff8ff; } .co.L.hot b { color: #ff3dbb; }
+  .co.compact small { display: none; }
+    .co.tag { transform: translate(-50%, 16px); text-align: center; border: 0; padding: 3px 8px; background: #05060cb0; border-radius: 4px; }
+  .co.tag b { font-size: 11px; } .co.tag small { display: none; }
+
+  /* 部件详情卡 */
+  #card { position: fixed; top: 50%; right: 5vw; width: 300px; z-index: 6; transform: translate(30px, -50%); opacity: 0; pointer-events: none; transition: opacity .4s, transform .5s cubic-bezier(.2,.9,.2,1);
+    padding: 24px; border-radius: 18px; border: 1px solid #ffffff22; background: linear-gradient(160deg, #121a30e6, #0a0d18e6); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: 0 30px 80px -20px #000; }
+  #card.show { opacity: 1; transform: translate(0, -50%); pointer-events: auto; }
+  #card .no { font-size: 11px; letter-spacing: .3em; color: #5ff8ff; }
+  #card h3 { font-size: 28px; font-weight: 900; margin: 8px 0 2px; }
+  #card .en { font-size: 10px; letter-spacing: .3em; color: #7d8bb0; }
+  #card p { margin: 16px 0; font-size: 14px; line-height: 1.7; color: #c3cbe4; }
+  #card dl { display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; font-size: 12px; padding-top: 14px; border-top: 1px solid #ffffff15; }
+  #card dt { color: #7d8bb0; letter-spacing: .1em; } #card dd { color: #fff; text-align: right; }
+  #card .nav { display: flex; justify-content: space-between; margin-top: 18px; }
+  #card .nav button, #card .x { border: 1px solid #ffffff30; background: transparent; color: #fff; border-radius: 999px; padding: 7px 14px; font-size: 12px; transition: .3s; }
+  #card .nav button:hover, #card .x:hover { background: #fff; color: #05060c; }
+  #card .x { position: absolute; top: 16px; right: 16px; padding: 4px 10px; }
+
+  /* 扫描识别面板 */
+  #scanHud { position: fixed; top: 28px; right: 5vw; width: 280px; z-index: 6; padding: 16px 18px; border-radius: 14px; border: 1px solid #5ff8ff44; background: #06121cd0; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); font-size: 11px; color: #9fdcff; opacity: 0; transform: translateY(-12px); transition: opacity .4s, transform .5s cubic-bezier(.2,.9,.2,1); pointer-events: none; }
+  #scanHud.show { opacity: 1; transform: none; }
+  #scanHud .sh-top { display: flex; justify-content: space-between; align-items: baseline; letter-spacing: .3em; }
+  #scanHud .sh-top span { animation: blink 1s steps(2) infinite; }
+  #scanHud.done .sh-top span { animation: none; color: #4dff9a; }
+  @keyframes blink { 50% { opacity: .35; } }
+  #scanHud .sh-top b { font-size: 26px; font-weight: 300; color: #fff; letter-spacing: 0; }
+  #scanHud .sh-bar { height: 2px; background: #ffffff15; margin: 10px 0 8px; }
+  #scanHud .sh-bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #5ff8ff, #ff3dbb); box-shadow: 0 0 8px #5ff8ff; }
+  #scanHud .sh-meta { display: flex; justify-content: space-between; color: #7d8bb0; }
+  #scanLog { list-style: none; margin-top: 10px; display: grid; gap: 5px; }
+  #scanLog li { display: flex; gap: 8px; align-items: center; animation: shIn .35s ease-out; }
+  #scanLog li:not(:first-child) { opacity: .55; }
+  #scanLog i { color: #5ff8ff; font-style: normal; font-size: 8px; }
+  #scanLog b { flex: 1; color: #fff; font-weight: 500; font-family: "PingFang SC", system-ui, sans-serif; font-size: 12px; }
+  #scanLog span { color: #7d8bb0; }
+  @keyframes shIn { from { opacity: 0; transform: translateX(12px); } }
+  #scanDone { display: none; margin-top: 10px; padding-top: 10px; border-top: 1px solid #ffffff18; line-height: 1.8; color: #9fdcff; font-family: "PingFang SC", system-ui, sans-serif; font-size: 12px; }
+  #scanDone b { color: #4dff9a; font-weight: 600; }
+  #scanHud.done #scanDone { display: block; }
+
+  @media (max-width: 760px) {
+    #scanHud { top: 104px; right: 16px; width: 210px; padding: 12px 14px; }
+    .head { left: 16px; top: 18px; } .head p { display: none; }
+    .specs { top: auto; bottom: 170px; right: 16px; transform: none; gap: 8px; } .spec b { font-size: 20px; } .spec .bar { width: 90px; }
+    .paint { left: 16px; bottom: auto; top: 112px; }
+    .ctrl { bottom: 84px; gap: 6px; flex-wrap: wrap; justify-content: center; border-radius: 22px; width: calc(100% - 32px); }
+    .ctrl .rng { display: none; } .seg button { padding: 8px 12px; font-size: 12px; } .ctrl > button { padding: 8px 12px; font-size: 12px; }
+    #card { top: auto; bottom: 150px; right: 16px; left: 16px; width: auto; transform: translateY(30px); padding: 18px; }
+    #card.show { transform: none; } #card p { margin: 10px 0; font-size: 13px; }
+  }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<svg id="leaders"></svg>
+<div id="labels"></div>
+<div class="head">
+  <div class="tag mono">GARAGE / 06 · EXPLODED VIEW</div>
+  <h1>NX-07 <em>幻影</em></h1>
+  <p>拖拽旋转 · 点击部件查看详情 · 1 / 2 / 3 切换视图</p>
+</div>
+<div class="specs mono" id="specs"></div>
+<div class="paint" id="paint">车漆</div>
+<aside id="card">
+  <button class="x" id="cardX">ESC</button>
+  <div class="no mono" id="cNo"></div>
+  <h3 id="cZh"></h3>
+  <div class="en mono" id="cEn"></div>
+  <p id="cDesc"></p>
+  <dl class="mono"><dt>材质</dt><dd id="cMat"></dd><dt>重量</dt><dd id="cW"></dd><dt>装配层</dt><dd id="cLayer"></dd></dl>
+  <div class="nav"><button id="cPrev">← 上一个</button><button id="cNext">下一个 →</button></div>
+</aside>
+<div id="scanHud" class="mono">
+  <div class="sh-top"><span id="scanTitle">SCANNING</span><b id="scanPct">0%</b></div>
+  <div class="sh-bar"><i id="scanBar"></i></div>
+  <div class="sh-meta"><span id="scanCount">0 部件</span><span id="scanMass">0 kg</span></div>
+  <ul id="scanLog"></ul>
+  <div id="scanDone"></div>
+</div>
+<div class="ctrl">
+  <div class="seg" id="seg"><i></i><button data-m="assemble">组装</button><button data-m="explode">爆炸</button><button data-m="knoll">平铺</button></div>
+  <div class="rng mono"><input type="range" id="rng" min="0" max="100" value="0" /><span class="val" id="val">0%</span></div>
+  <button id="xray">X 光</button>
+  <button id="scan">扫描</button>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { Reflector } from 'three/addons/objects/Reflector.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { buildCar, NEON_C, NEON_P, radialGlow } from './car.js';
+
+const INFO = {
+  'Monocoque Body': ['碳纤维与钛合金一体成型的承载式车身，风阻系数仅 0.21。', 'T1100 碳纤维', '86 kg', '车身层'],
+  'Canopy': ['电致变色单片座舱罩，0.3 秒内由透明切换为全遮光。', '铝硅酸盐玻璃', '14 kg', '车身层'],
+  'Active Wing': ['毫秒级主动调节攻角，300 km/h 时提供 820 kg 下压力。', '碳纤维 / 钛合金', '9 kg', '空气动力'],
+  'Aero Fenders': ['外露式轮拱导流罩，引导气流掠过车轮，降低乱流。', '碳纤维', '4 × 3 kg', '空气动力'],
+  'Front Splitter': ['可伸缩前铲，高速时下沉 30 mm 以增加前轴下压力。', '碳纤维', '5 kg', '空气动力'],
+  'Rear Diffuser': ['五片式扩散器，把车底高速气流平顺导出。', '碳纤维', '7 kg', '空气动力'],
+  'Quantum Core': ['磁约束等离子核心，双环陀螺稳定，持续输出 1,600 kW。', '超导铌钛线圈', '62 kg', '动力层'],
+  'Solid-State Battery': ['18 模组硫化物固态电池，10 分钟补能至 80%，同时参与车身受力。', '硫化物电解质', '310 kg', '动力层'],
+  'Carbon Chassis': ['蜂窝夹层碳纤维底板，集成平底扩散通道。', '碳纤维蜂窝', '48 kg', '底盘层'],
+  'Active Suspension': ['电磁主动悬挂，每秒 1,000 次读取路面并调整阻尼。', '7075 航空铝', '36 kg', '底盘层'],
+  'Racing Seats': ['一体成型桶形座椅，内置生物传感与主动通风。', '碳纤维 / Alcantara', '2 × 6 kg', '座舱层'],
+  'Holo Cockpit': ['半环形全息方向盘与悬浮 HUD，信息直接投射在视线前方。', '光场投影模组', '4 kg', '座舱层'],
+  'Laser Headlights': ['矩阵激光大灯，照射距离 600 m，可向路面投影导航。', '激光二极管阵列', '3 kg', '灯光'],
+  'Light Bar': ['贯穿式 OLED 尾灯，实时显示车速与刹车力度。', 'OLED 柔性面板', '2 kg', '灯光'],
+  'Side Neon': ['侧裙氛围光带，随车速与音乐节拍变换色彩。', 'Micro-LED', '2 × 0.5 kg', '灯光'],
+  'Ceramic Brakes': ['碳陶刹车盘配 10 活塞卡钳，100-0 km/h 制动距离 28 m。', '碳化硅陶瓷', '4 × 6 kg', '车轮层'],
+  'Hover Wheels': ['22 英寸涡轮式轮毂，轮辐兼作刹车散热风扇。', '锻造镁合金', '4 × 11 kg', '车轮层'],
+};
+const PAINTS = [['幻影紫', 0x2a1442, '#ff3dbb'], ['烈焰红', 0x7a0c1c, '#ff4d4d'], ['极光银', 0xb8c0cc, '#ffffff'], ['电光蓝', 0x0b2a6a, '#5ff8ff'], ['曜石黑', 0x08080c, '#888']];
+const SPAN = .45, LIFT = .9;
+const DEFAULT_CAM = { pos: new THREE.Vector3(7, 3.6, 8), target: new THREE.Vector3(0, .9, 0) };
+
+// ---------- 场景 ----------
+const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('gl'), antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x05060c);
+scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 100);
+camera.position.set(11, 5.5, 12.5);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.copy(DEFAULT_CAM.target);
+controls.enableDamping = true; controls.enablePan = false;
+controls.autoRotateSpeed = 0.6;
+controls.minDistance = 2; controls.maxDistance = 40;
+controls.maxPolarAngle = 1.48;
+
+const rimC = new THREE.PointLight(NEON_C, 6, 20); rimC.position.set(-6, 5, -4); scene.add(rimC);
+const rimP = new THREE.PointLight(NEON_P, 6, 20); rimP.position.set(6, 5, 4); scene.add(rimP);
+const key = new THREE.DirectionalLight(0xffffff, .5); key.position.set(2, 8, 4); scene.add(key);
+
+// 镜面地面 + 半透明网格层
+const mirror = new Reflector(new THREE.CircleGeometry(16, 64), {
+  clipBias: 0.003, color: 0x6a7490,
+  textureWidth: innerWidth * Math.min(devicePixelRatio, 2) * .5, textureHeight: innerHeight * Math.min(devicePixelRatio, 2) * .5,
+});
+mirror.rotation.x = -Math.PI / 2;
+scene.add(mirror);
+const uFloor = { uTime: { value: 0 }, uE: { value: 0 } };
+const floor = new THREE.Mesh(new THREE.CircleGeometry(16, 96), new THREE.ShaderMaterial({
+  uniforms: uFloor, transparent: true, depthWrite: false,
+  vertexShader: `varying vec2 vP; void main(){ vP = position.xy; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }`,
+  fragmentShader: /* glsl */`
+    uniform float uTime, uE; varying vec2 vP;
+    void main(){
+      float r = length(vP);
+      vec2 g = abs(fract(vP - .5) - .5) / fwidth(vP);
+      float line = 1. - min(min(g.x, g.y), 1.);
+      vec3 c = vec3(.02, .03, .06);
+      c += vec3(.2, .6, 1.) * line * .22 * smoothstep(12., 2., r);
+      float ang = atan(vP.y, vP.x) / 6.2831;
+      c += vec3(.37, .97, 1.) * smoothstep(.03, 0., abs(r - 3.2)) * .9;
+      c += vec3(1., .24, .73) * smoothstep(.025, 0., abs(r - 3.6 - uE*.8)) * step(.5, fract(ang*24. + uTime*.08)) * .8;
+      c += vec3(.37, .97, 1.) * smoothstep(.02, 0., abs(r - 5. - uE*1.5)) * step(.8, fract(ang*60. - uTime*.05)) * .6;
+      c = mix(vec3(.02,.024,.047), c, smoothstep(15., 6., r));
+      gl_FragColor = vec4(c, mix(.8, 1., smoothstep(2., 13., r)));
+    }`,
+}));
+floor.rotation.x = -Math.PI / 2; floor.position.y = .003;
+scene.add(floor);
+
+// ---------- 跑车 ----------
+const { car, parts, wheels, core, M } = buildCar();
+M.paint.envMapIntensity = .7; M.paint.clearcoat = .6; M.paint.clearcoatRoughness = .25; M.glass.envMapIntensity = .15; M.glass.metalness = .4; M.glass.roughness = .3; M.glass.clearcoat = 0;
+scene.add(car);
+car.updateMatrixWorld(true);
+const shadow = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 6), new THREE.MeshBasicMaterial({ map: radialGlow('rgba(95,248,255,1)'), transparent: true, opacity: .35, blending: THREE.AdditiveBlending, depthWrite: false }));
+shadow.rotation.x = -Math.PI / 2; shadow.position.y = .006;
+scene.add(shadow);
+
+const tmp = new THREE.Vector3(), tmp2 = new THREE.Vector3(), white = new THREE.Color(1, 1, 1);
+const clamp01 = v => Math.min(Math.max(v, 0), 1);
+const ease = t => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+const box3 = new THREE.Box3();
+
+// 部件元数据：包围盒中心、爆炸顺序（外层先飞）、平铺位置（按尺寸排成网格）
+const items = parts.map(p => {
+  const d = p.userData.part;
+  box3.setFromObject(p);
+  d.center = box3.getCenter(new THREE.Vector3()).sub(p.position);
+  d.size = box3.getSize(new THREE.Vector3()).length() / 2;
+  d.baseQ = p.quaternion.clone();
+  d.edges = [];
+  p.traverse(o => { if (o.userData.edge) { o.userData.c0 = o.material.color.clone(); o.userData.op = o.material.opacity; d.edges.push(o); } });
+  const kr = /Wheels|Brakes/.test(d.en) ? new THREE.Euler(0, 0, Math.PI / 2) : d.baseRot.clone();
+  const sp = p.position.clone(), sq = p.quaternion.clone();
+  p.position.set(0, 0, 0); p.quaternion.setFromEuler(kr); p.updateMatrixWorld(true);
+  box3.setFromObject(p);
+  const it = { d, size: box3.getSize(new THREE.Vector3()), ctr: box3.getCenter(new THREE.Vector3()), minY: box3.min.y };
+  p.position.copy(sp); p.quaternion.copy(sq); p.updateMatrixWorld(true);
+  d.knollQ = new THREE.Quaternion().setFromEuler(kr);
+  return it;
+});
+const knollExtent = { w: 10, z: 10 };
+[...parts].sort((a, b) => b.userData.part.off.length() - a.userData.part.off.length())
+  .forEach((p, i) => p.userData.part.order = i / (parts.length - 1));
+{
+  const MAXW = 10.5, GAP = .5, sorted = [...items].sort((a, b) => b.size.z - a.size.z || b.size.x - a.size.x);
+  const rows = [[]]; let rw = 0;
+  sorted.forEach(it => { if (rows.at(-1).length && rw + it.size.x > MAXW) { rows.push([]); rw = 0; } rows.at(-1).push(it); rw += it.size.x + GAP; });
+  let z = 0;
+  rows.forEach(r => {
+    const depth = Math.max(...r.map(i => i.size.z)), total = r.reduce((s, i) => s + i.size.x, 0) + GAP * (r.length - 1);
+    let x = -total / 2;
+    r.forEach(it => { it.slot = new THREE.Vector3(x + it.size.x / 2, 0, z + depth / 2); x += it.size.x + GAP; });
+    z += depth + GAP;
+  });
+  const totalZ = z - GAP;
+  knollExtent.w = Math.max(...rows.map(r => r.reduce((s, i) => s + i.size.x, 0) + GAP * (r.length - 1)));
+  knollExtent.z = totalZ;
+  sorted.forEach((it, i) => {
+    const d = it.d;
+    d.knollPos = new THREE.Vector3(it.slot.x - it.ctr.x, .02 - it.minY, it.slot.z - totalZ / 2 - it.ctr.z);
+    d.korder = i / (sorted.length - 1);
+    d.arc = .6 + d.base.distanceTo(d.knollPos) * .12;
+  });
+}
+
+// 原位轮廓（虚线幽灵）与装配轨迹线
+const hideMat = new THREE.MeshBasicMaterial({ visible: false });
+const ghostLine = new THREE.LineDashedMaterial({ color: NEON_C, dashSize: .1, gapSize: .07, transparent: true, opacity: 0, depthWrite: false });
+const ghosts = new THREE.Group();
+parts.filter(p => ['Monocoque Body', 'Canopy', 'Active Wing', 'Aero Fenders'].includes(p.userData.part.en)).forEach(p => {
+  const g = p.clone(true);
+  g.traverse(o => { if (o.isMesh) o.material = hideMat; if (o.userData.edge) { o.material = ghostLine; o.computeLineDistances(); } });
+  ghosts.add(g);
+});
+car.add(ghosts);
+const trajPos = new Float32Array(parts.length * 6);
+const trajGeo = new THREE.BufferGeometry();
+trajGeo.setAttribute('position', new THREE.BufferAttribute(trajPos, 3));
+const traj = new THREE.LineSegments(trajGeo, new THREE.LineDashedMaterial({ color: NEON_P, dashSize: .06, gapSize: .06, transparent: true, opacity: 0, depthWrite: false }));
+traj.frustumCulled = false;
+car.add(traj);
+
+// ---------- X 光：裁剪平面扫屏转场 + 分层透视材质 ----------
+renderer.localClippingEnabled = true;
+const clipOrig = new THREE.Plane(new THREE.Vector3(0, 0, 1), 1e3);   // 原材质只保留 z ≥ s
+const clipHolo = new THREE.Plane(new THREE.Vector3(0, 0, -1), -1e3); // 全息材质只保留 z ≤ s
+const scanU = { uScanZ: { value: -1e3 }, uScanOn: { value: 0 } };
+
+const HOLO_VS = /* glsl */`
+  #include <common>
+  #include <clipping_planes_pars_vertex>
+  varying vec3 vN, vV, vW;
+  void main(){
+    vec4 w = modelMatrix * vec4(position, 1.);
+    vW = w.xyz; vN = normalize(mat3(modelMatrix) * normal); vV = normalize(cameraPosition - w.xyz);
+    vec4 mvPosition = viewMatrix * w;
+    gl_Position = projectionMatrix * mvPosition;
+    #include <clipping_planes_vertex>
+  }`;
+const HOLO_FS = /* glsl */`
+  #include <common>
+  #include <clipping_planes_pars_fragment>
+  uniform float uTime, uDim, uScanZ, uScanOn; uniform vec3 uColor;
+  varying vec3 vN, vV, vW;
+  void main(){
+    #include <clipping_planes_fragment>
+    float f = pow(1. - abs(dot(normalize(vN), vV)), 2.2);
+    float bands = smoothstep(.45, .5, abs(fract(vW.y*14. - uTime*.6) - .5));
+    float flick = .9 + .1*sin(uTime*37. + vW.y*23.);
+    vec3 c = uColor * (f*.7 + .02) * flick + uColor * bands * .08;
+    float sd = vW.z - uScanZ;
+    c += vec3(.6, 1., 1.) * exp(-sd*sd*150.) * uScanOn * 1.4;
+    gl_FragColor = vec4(c * uDim, 1.);
+  }`;
+const holoMat = (color, dim, clip) => new THREE.ShaderMaterial({
+  uniforms: { uTime: { value: 0 }, uDim: { value: dim }, uColor: { value: new THREE.Color(color) }, ...scanU },
+  vertexShader: HOLO_VS, fragmentShader: HOLO_FS,
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+  clipping: clip, clippingPlanes: clip ? [clipHolo] : null,
+});
+// 分层透视：外壳淡蓝、结构件冰白、动力件橙色发热
+const SHELL = ['Monocoque Body', 'Canopy', 'Active Wing', 'Aero Fenders', 'Front Splitter', 'Rear Diffuser'];
+const POWER = ['Quantum Core', 'Solid-State Battery'];
+const holoBy = { shell: holoMat(0x3a8cff, .32, true), struct: holoMat(0x9fe8ff, .5, true), power: holoMat(0xff7a3d, .7, true) };
+const ghost = holoMat(0x3a8cff, .22, false);
+const holoAll = [...Object.values(holoBy), ghost];
+
+// 扫描切片：给原材质注入“扫描光带 + 已扫区域数字网格”
+function injectScan(mat) {
+  if (mat.userData.scan) return;
+  mat.userData.scan = true;
+  mat.onBeforeCompile = sh => {
+    sh.uniforms.uScanZ = scanU.uScanZ; sh.uniforms.uScanOn = scanU.uScanOn;
+    sh.vertexShader = 'varying vec3 vScanW;\n' + sh.vertexShader.replace('#include <project_vertex>', '#include <project_vertex>\n  vScanW = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    sh.fragmentShader = 'uniform float uScanZ, uScanOn; varying vec3 vScanW;\n' + sh.fragmentShader.replace('#include <dithering_fragment>', `#include <dithering_fragment>
+      float sd = vScanW.z - uScanZ;
+      float band = exp(-sd*sd*150.);
+      float trail = sd < 0. ? exp(sd*1.2) : 0.;
+      vec3 g3 = abs(fract(vScanW * 10.) - .5);
+      float grid = step(.46, max(max(g3.x, g3.y), g3.z)) * trail;
+      gl_FragColor.rgb += (vec3(.55, 1., 1.) * band * 1.8 + vec3(.25, .75, 1.) * grid * .35 + vec3(.1, .3, .5) * trail * .15) * uScanOn;`);
+  };
+  mat.needsUpdate = true;
+}
+
+// 每个网格配一个共享几何体的全息“孪生体”，两者被同一位置的裁剪平面分割
+parts.forEach(p => {
+  const en = p.userData.part.en, layer = SHELL.includes(en) ? 'shell' : POWER.includes(en) ? 'power' : 'struct';
+  const meshes = [];
+  p.traverse(o => { if (o.isMesh) meshes.push(o); });
+  meshes.forEach(o => {
+    o.userData.orig = o.material;
+    injectScan(o.material);
+    o.material.clippingPlanes = [clipOrig];
+    const tw = new THREE.Mesh(o.geometry, holoBy[layer]);
+    tw.userData.twin = true;
+    tw.raycast = () => {};
+    o.add(tw);
+  });
+});
+
+let xr = 0, xrT = 0, xrZ = [-3, 3], focusPart = null;
+function refreshMaterials() {
+  parts.forEach(p => {
+    const dimmed = focusPart && p !== focusPart;
+    p.traverse(o => {
+      if (o.userData.twin) o.visible = !dimmed;
+      else if (o.isMesh) o.material = dimmed ? ghost : o.userData.orig;
+    });
+  });
+}
+const partsBox = () => { box3.makeEmpty(); parts.forEach(p => box3.expandByObject(p)); return box3; };
+
+// 扫描/转场光幕：主光幕 + 边框 + 地面激光线 + 三层残影
+function makeSheet(color) {
+  const g = new THREE.Group(), sheet = new THREE.Group();
+  const fillMat = o => new THREE.MeshBasicMaterial({ color, transparent: true, opacity: o, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, depthWrite: false });
+  sheet.add(new THREE.Mesh(new THREE.PlaneGeometry(1, 1), fillMat(.045)));
+  sheet.add(new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.PlaneGeometry(1, 1)), new THREE.LineBasicMaterial({ color, transparent: true, opacity: .8 })));
+  for (let i = 1; i <= 3; i++) { const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), fillMat(.03 * (1 - i / 4))); m.position.z = -i * .14; sheet.add(m); }
+  const laser = new THREE.Mesh(new THREE.PlaneGeometry(1, .05), fillMat(.9));
+  laser.rotation.x = -Math.PI / 2; laser.position.y = .012;
+  g.add(sheet, laser);
+  g.userData.fit = (w, h, cy) => { sheet.scale.set(w, h, 1); sheet.position.y = cy; laser.scale.x = w + 1.5; };
+  g.visible = false;
+  scene.add(g);
+  return g;
+}
+const seam = makeSheet(0x9fe8ff), scanRig = makeSheet(NEON_C);
+
+function setXray(on) {
+  if ((xrT === 1) === on) return;
+  const b = partsBox(), size = b.getSize(new THREE.Vector3()), c = b.getCenter(new THREE.Vector3());
+  xrZ = [b.min.z - .4, b.max.z + .4];
+  seam.userData.fit(size.x + .8, size.y + .8, c.y);
+  xrT = on ? 1 : 0;
+  document.getElementById('xray').classList.toggle('on', on);
+  whoosh(on ? 1 : -1);
+}
+
+// X 光下的能量流：电池 → 量子核心 / 四个轮毂
+const findPart = en => parts.find(p => p.userData.part.en === en);
+const battery = findPart('Solid-State Battery');
+const flowTargets = [findPart('Quantum Core'), ...parts.filter(p => p.userData.part.en === 'Hover Wheels')];
+const FLOW_N = 40;
+const flowPos = new Float32Array(flowTargets.length * FLOW_N * 3), flowLinePos = new Float32Array(flowTargets.length * 12);
+const flowPts = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(flowPos, 3)),
+  new THREE.PointsMaterial({ color: 0xffa060, size: .07, map: radialGlow('rgba(255,255,255,1)'), transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false }));
+const flowLine = new THREE.LineSegments(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(flowLinePos, 3)),
+  new THREE.LineBasicMaterial({ color: 0xff7a3d, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false }));
+flowPts.frustumCulled = flowLine.frustumCulled = false;
+car.add(flowLine, flowPts);
+const fA = new THREE.Vector3(), fB = new THREE.Vector3(), fM = new THREE.Vector3();
+function updateFlow(t, op) {
+  flowPts.material.opacity = op; flowLine.material.opacity = op * .45;
+  flowPts.visible = flowLine.visible = op > 0;
+  if (!op) return;
+  fA.copy(battery.position).add(battery.userData.part.center);
+  flowTargets.forEach((p, k) => {
+    fB.copy(p.position).add(p.userData.part.center);
+    fM.set(fB.x, fA.y, fB.z);
+    const L1 = fA.distanceTo(fM), L2 = fM.distanceTo(fB), L = L1 + L2 || 1;
+    flowLinePos.set([fA.x, fA.y, fA.z, fM.x, fM.y, fM.z, fM.x, fM.y, fM.z, fB.x, fB.y, fB.z], k * 12);
+    for (let i = 0; i < FLOW_N; i++) {
+      const u = ((i / FLOW_N + t * .5) % 1) * L;
+      const q = u < L1 ? tmp.copy(fA).lerp(fM, u / (L1 || 1)) : tmp.copy(fM).lerp(fB, (u - L1) / (L2 || 1));
+      flowPos.set([q.x, q.y, q.z], (k * FLOW_N + i) * 3);
+    }
+  });
+  flowPts.geometry.attributes.position.needsUpdate = true;
+  flowLine.geometry.attributes.position.needsUpdate = true;
+}
+
+// ---------- 标注 ----------
+const svg = document.getElementById('leaders'), labelsEl = document.getElementById('labels');
+const labeled = parts.filter(p => p.userData.part.label);
+const NS = 'http://www.w3.org/2000/svg';
+labeled.forEach((p, i) => {
+  const d = p.userData.part;
+  d.no = i + 1;
+  d.el = document.createElement('div');
+  d.el.className = 'co';
+  d.el.innerHTML = `<b>${d.zh}</b><small class="mono">${String(d.no).padStart(2, '0')} · ${d.en.toUpperCase()}</small>`;
+  labelsEl.appendChild(d.el);
+  d.path = document.createElementNS(NS, 'path'); svg.appendChild(d.path);
+  d.dot = document.createElementNS(NS, 'circle'); d.dot.setAttribute('r', 3); svg.appendChild(d.dot);
+});
+const labelIndex = en => labeled.findIndex(p => p.userData.part.en === en);
+
+const worldCenter = (p, out = new THREE.Vector3()) => car.localToWorld(out.copy(p.position).add(p.userData.part.center));
+function screenOf(p) {
+  worldCenter(p, tmp).project(camera);
+  return { x: (tmp.x * .5 + .5) * innerWidth, y: (-tmp.y * .5 + .5) * innerHeight, behind: tmp.z > 1 };
+}
+function layoutCallouts(list) {
+  const top = 130, bottom = innerHeight - 150;
+  list.sort((a, b) => a.sx - b.sx).forEach((d, i) => d.side = i < Math.ceil(list.length / 2) ? 'L' : 'R');
+  ['L', 'R'].forEach(side => {
+    const arr = list.filter(i => i.side === side).sort((a, b) => a.y - b.y);
+    const GAP = Math.min(38, (bottom - top) / Math.max(arr.length - 1, 1));
+    arr.forEach(i => i.compact = GAP < 31);
+    arr.forEach(i => i.ly = Math.min(Math.max(i.y, top), bottom));
+    for (let i = 1; i < arr.length; i++) arr[i].ly = Math.max(arr[i].ly, arr[i - 1].ly + GAP);
+    const over = arr.length ? arr.at(-1).ly - bottom : 0;
+    if (over > 0) { arr.at(-1).ly -= over; for (let i = arr.length - 2; i >= 0; i--) arr[i].ly = Math.min(arr[i].ly, arr[i + 1].ly - GAP); }
+  });
+}
+
+// ---------- 镜头 ----------
+let camGoal = null, savedCam = null;
+const flyTo = (pos, target, follow = null) => { camGoal = { pos: pos.clone(), target: target.clone(), follow }; };
+controls.addEventListener('start', () => { camGoal = null; });
+// 按平铺范围自动计算俯视距离，留出上下 UI 的边距
+const knollCam = () => {
+  const tan = Math.tan(THREE.MathUtils.degToRad(20));
+  const dist = Math.max(knollExtent.z / (2 * tan), knollExtent.w / (2 * tan * camera.aspect)) * 1.9;
+  const dir = new THREE.Vector3(0, .92, .4).normalize();
+  return { pos: dir.multiplyScalar(dist).add(new THREE.Vector3(0, 0, .6)), target: new THREE.Vector3(0, 0, .6) };
+};
+
+// ---------- 状态 ----------
+let E = 1, ET = 0, K = 0, KT = 0, scan = null, hot = null;
+const paintT = new THREE.Color(PAINTS[0][1]);
+
+function setMode(m) {
+  if (m === 'knoll') { if (KT !== 1) { KT = 1; flyTo(knollCam().pos, knollCam().target); } }
+  else {
+    if (KT === 1) { KT = 0; flyTo(DEFAULT_CAM.pos, DEFAULT_CAM.target); }
+    ET = m === 'explode' ? 1 : 0;
+  }
+  unfocus(false);
+  whoosh(m === 'assemble' ? -1 : 1);
+}
+let segMode = '';
+const modeNow = () => KT === 1 ? 'knoll' : ET > .5 ? 'explode' : 'assemble';
+const seg = document.getElementById('seg'), segBtns = [...seg.querySelectorAll('button')], segPill = seg.querySelector('i');
+segBtns.forEach(b => b.onclick = () => setMode(b.dataset.m));
+function updateSeg() {
+  const m = modeNow();
+  segBtns.forEach(b => {
+    b.classList.toggle('on', b.dataset.m === m);
+    if (b.dataset.m === m) { segPill.style.width = b.offsetWidth + 'px'; segPill.style.transform = `translateX(${b.offsetLeft - 3}px)`; }
+  });
+}
+
+function focus(p) {
+  if (!p) return;
+  if (!focusPart) savedCam = { pos: camera.position.clone(), target: controls.target.clone() };
+  focusPart = p; refreshMaterials();
+  const c = worldCenter(p), dir = camera.position.clone().sub(controls.target).normalize();
+  flyTo(c.clone().addScaledVector(dir, Math.max(3.2, p.userData.part.size * 4.2)), c, p);
+  const d = p.userData.part, [desc, mat, w, layer] = INFO[d.en];
+  document.getElementById('cNo').textContent = `${String(labelIndex(d.en) + 1).padStart(2, '0')} / ${labeled.length}`;
+  document.getElementById('cZh').textContent = d.zh;
+  document.getElementById('cEn').textContent = d.en.toUpperCase();
+  document.getElementById('cDesc').textContent = desc;
+  document.getElementById('cMat').textContent = mat;
+  document.getElementById('cW').textContent = w;
+  document.getElementById('cLayer').textContent = layer;
+  document.getElementById('card').classList.add('show');
+  blip();
+}
+function unfocus(fly = true) {
+  if (!focusPart) return;
+  focusPart = null; refreshMaterials();
+  document.getElementById('card').classList.remove('show');
+  if (fly && savedCam) flyTo(savedCam.pos, savedCam.target);
+  savedCam = null;
+}
+const step = dir => focus(labeled[(labelIndex(focusPart.userData.part.en) + dir + labeled.length) % labeled.length]);
+document.getElementById('cardX').onclick = () => unfocus();
+document.getElementById('cPrev').onclick = () => step(-1);
+document.getElementById('cNext').onclick = () => step(1);
+
+const rng = document.getElementById('rng'), val = document.getElementById('val');
+rng.oninput = () => { if (KT) { KT = 0; flyTo(DEFAULT_CAM.pos, DEFAULT_CAM.target); } ET = E = rng.value / 100; };
+document.getElementById('xray').onclick = () => setXray(xrT !== 1);
+document.getElementById('scan').onclick = () => startScan();
+addEventListener('keydown', e => {
+  if (e.code === 'Space') { e.preventDefault(); setMode(modeNow() === 'explode' ? 'assemble' : 'explode'); }
+  if (e.key === '1') setMode('assemble'); if (e.key === '2') setMode('explode'); if (e.key === '3') setMode('knoll');
+  if (e.key === 'x') setXray(xrT !== 1);
+  if (e.key === 's') startScan();
+  if (e.key === 'Escape') unfocus();
+  if (focusPart && e.key === 'ArrowRight') step(1);
+  if (focusPart && e.key === 'ArrowLeft') step(-1);
+});
+
+// 车漆
+const paintEl = document.getElementById('paint'), paintName = document.createElement('span');
+PAINTS.forEach(([name, c, glow], i) => {
+  const b = document.createElement('button');
+  b.style.setProperty('--c', '#' + c.toString(16).padStart(6, '0')); b.style.setProperty('--g', glow);
+  b.title = name; if (!i) b.classList.add('on');
+  b.onclick = () => { paintT.set(c); paintName.textContent = name; paintEl.querySelectorAll('button').forEach(x => x.classList.toggle('on', x === b)); blip(); };
+  paintEl.appendChild(b);
+});
+paintName.textContent = PAINTS[0][0];
+paintEl.appendChild(paintName);
+
+// ---------- 扫描：切片光带 + 识别日志 ----------
+const $ = id => document.getElementById(id);
+const massOf = str => { const m = str.match(/(?:(\d+)\s*×\s*)?([\d.,]+)\s*kg/); return m ? (m[1] ? +m[1] : 1) * parseFloat(m[2].replace(',', '')) : 0; };
+function startScan() {
+  if (scan && !scan.done) return;
+  unfocus();
+  const b = partsBox(), size = b.getSize(new THREE.Vector3()), c = b.getCenter(new THREE.Vector3());
+  scan = { t: 0, z0: b.min.z - .5, z1: b.max.z + .5, found: new Set(), logged: new Set(), mass: 0, done: false, end: 0 };
+  scanRig.userData.fit(size.x + .8, size.y + .8, c.y);
+  scanRig.visible = true;
+  $('scanLog').innerHTML = ''; $('scanHud').className = 'mono show';
+  $('scanTitle').textContent = 'SCANNING';
+  $('scan').classList.add('on');
+  scanSweep(3.4);
+}
+function onDetect(p) {
+  const d = p.userData.part;
+  d.flash = 1;
+  if (scan.logged.has(d.en)) return;
+  scan.logged.add(d.en);
+  const w = INFO[d.en][2];
+  scan.mass += massOf(w);
+  const li = document.createElement('li');
+  li.innerHTML = `<i>◆</i><b>${d.zh}</b><span>${w}</span>`;
+  const log = $('scanLog');
+  log.prepend(li);
+  while (log.children.length > 5) log.lastChild.remove();
+  blip(2400, .035);
+}
+function finishScan(t) {
+  scan.done = true; scan.end = t;
+  scanRig.visible = false;
+  $('scanHud').classList.add('done');
+  $('scanTitle').textContent = 'COMPLETE';
+  $('scanDone').innerHTML = `识别 <b>${parts.length}</b> 个部件 · ${scan.logged.size} 类<br>整备质量 <b>${Math.round(scan.mass).toLocaleString()} kg</b><br>结构完整度 <b>99.8%</b> · 无异常`;
+  $('scan').classList.remove('on');
+  blip(1320, .08); setTimeout(() => blip(1760, .08), 130);
+}
+function updateScan(t, dt) {
+  if (!scan) { scanU.uScanOn.value = 0; return null; }
+  if (!scan.done) {
+    scan.t = Math.min(scan.t + dt / 3.4, 1);
+    const z = scan.z0 + (scan.z1 - scan.z0) * scan.t;
+    scanU.uScanZ.value = z; scanU.uScanOn.value = 1;
+    scanRig.position.z = z;
+    parts.forEach(p => { if (!scan.found.has(p) && p.position.z + p.userData.part.center.z < z) { scan.found.add(p); onDetect(p); } });
+    $('scanPct').textContent = Math.round(scan.t * 100) + '%';
+    $('scanBar').style.width = scan.t * 100 + '%';
+    $('scanCount').textContent = `${scan.found.size} / ${parts.length} 部件`;
+    $('scanMass').textContent = Math.round(scan.mass).toLocaleString() + ' kg';
+    if (scan.t >= 1) finishScan(t);
+    return z;
+  }
+  const since = t - scan.end;
+  scanU.uScanOn.value = Math.max(0, 1 - since / 2.5);   // 网格余晖慢慢褪去
+  if (since > 5) { $('scanHud').classList.remove('show'); scan = null; }
+  return null;
+}
+
+// 音效：只在 BGM 开启时发声
+let sfx;
+function whoosh(dir) {
+  if (!window.BGM?.playing) return;
+  sfx ??= new AudioContext();
+  const t = sfx.currentTime, len = .9, buf = sfx.createBuffer(1, sfx.sampleRate * len, sfx.sampleRate), ch = buf.getChannelData(0);
+  for (let i = 0; i < ch.length; i++) ch[i] = Math.random() * 2 - 1;
+  const s = sfx.createBufferSource(), f = sfx.createBiquadFilter(), g = sfx.createGain();
+  s.buffer = buf; f.type = 'bandpass'; f.Q.value = 2;
+  f.frequency.setValueAtTime(dir > 0 ? 300 : 2500, t); f.frequency.exponentialRampToValueAtTime(dir > 0 ? 2500 : 300, t + len);
+  g.gain.setValueAtTime(.0001, t); g.gain.exponentialRampToValueAtTime(.22, t + .25); g.gain.exponentialRampToValueAtTime(.0001, t + len);
+  s.connect(f).connect(g).connect(sfx.destination); s.start(t);
+}
+function blip(f = 1400, vol = .12) {
+  if (!window.BGM?.playing) return;
+  sfx ??= new AudioContext();
+  const t = sfx.currentTime, o = sfx.createOscillator(), g = sfx.createGain();
+  o.frequency.setValueAtTime(f, t); o.frequency.exponentialRampToValueAtTime(f / 2, t + .08);
+  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.0001, t + .12);
+  o.connect(g).connect(sfx.destination); o.start(t); o.stop(t + .15);
+}
+
+function scanSweep(dur) {
+  if (!window.BGM?.playing) return;
+  sfx ??= new AudioContext();
+  const t = sfx.currentTime, o = sfx.createOscillator(), g = sfx.createGain();
+  o.frequency.setValueAtTime(220, t); o.frequency.exponentialRampToValueAtTime(880, t + dur);
+  g.gain.setValueAtTime(.0001, t); g.gain.linearRampToValueAtTime(.04, t + .2);
+  g.gain.setValueAtTime(.04, t + dur - .2); g.gain.linearRampToValueAtTime(.0001, t + dur);
+  o.connect(g).connect(sfx.destination); o.start(t); o.stop(t + dur + .05);
+}
+
+// 参数面板
+const SPECS = [['最高时速', 'TOP SPEED', 412, 'km/h', .92], ['零百加速', '0-100', 1.9, 's', .97], ['峰值功率', 'POWER', 1600, 'kW', .85], ['续航里程', 'RANGE', 820, 'km', .7]];
+const specsEl = document.getElementById('specs');
+specsEl.innerHTML = SPECS.map(([zh, en, , unit]) => `<div class="spec"><small>${zh} · ${en}</small><b><span>0</span><i>${unit}</i></b><div class="bar"><span></span></div></div>`).join('');
+setTimeout(() => specsEl.querySelectorAll('.spec').forEach((el, i) => {
+  const [, , v, , pct] = SPECS[i], num = el.querySelector('b span');
+  el.querySelector('.bar span').style.width = pct * 100 + '%';
+  const t0 = performance.now();
+  (function count() {
+    const k = Math.min((performance.now() - t0) / 1600, 1), e = 1 - Math.pow(1 - k, 3);
+    num.textContent = v < 10 ? (v * e).toFixed(1) : Math.round(v * e).toLocaleString();
+    if (k < 1) requestAnimationFrame(count);
+  })();
+}), 600);
+
+// ---------- 交互：悬停与点击 ----------
+const ray = new THREE.Raycaster(), mouse = new THREE.Vector2(9, 9), down = new THREE.Vector2();
+const canvas = renderer.domElement;
+canvas.addEventListener('pointermove', e => mouse.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1));
+canvas.addEventListener('pointerleave', () => mouse.set(9, 9));
+canvas.addEventListener('pointerdown', e => down.set(e.clientX, e.clientY));
+canvas.addEventListener('pointerup', e => {
+  if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 5) return;
+  mouse.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+  const p = pick();
+  if (p && p !== focusPart) focus(p); else unfocus();
+});
+function pick() {
+  if (mouse.x > 5) return null;
+  ray.setFromCamera(mouse, camera);
+  const h = ray.intersectObjects(parts, true).find(h => h.object.isMesh && h.object.material.visible !== false);
+  let o = h?.object;
+  while (o && o.parent !== car) o = o.parent;
+  return o || null;
+}
+
+// ---------- 后期 ----------
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), .6, .4, .92);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+// ---------- 主循环 ----------
+flyTo(DEFAULT_CAM.pos, DEFAULT_CAM.target);
+const q1 = new THREE.Quaternion(), e1 = new THREE.Euler(), v1 = new THREE.Vector3();
+const bgBase = new THREE.Color(0x05060c), bgXray = new THREE.Color(0x02101e), xrayEdge = new THREE.Color(.55, .85, 1);
+let lastLift = 0;
+const clock = new THREE.Clock();
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), .1), t = clock.elapsedTime;
+  const approach = (cur, tgt, speed) => { const s = Math.sign(tgt - cur), n = cur + s * dt * speed; return Math.sign(tgt - n) !== s ? tgt : n; };
+  E = approach(E, ET, .55); K = approach(K, KT, .45);
+
+  // 部件姿态：爆炸位姿 → 平铺位姿（带抛物线弧度）
+  const eE = ease(E), lift = eE * LIFT;
+  parts.forEach(p => {
+    const d = p.userData.part;
+    const k = ease(clamp01((E - d.order * SPAN) / (1 - SPAN)));
+    v1.copy(d.base).addScaledVector(d.off, k); v1.y += lift;
+    q1.setFromEuler(e1.set(d.baseRot.x + d.rot.x * k, d.baseRot.y + d.rot.y * k, d.baseRot.z + d.rot.z * k));
+    const kb = ease(clamp01((K - d.korder * SPAN) / (1 - SPAN)));
+    p.position.lerpVectors(v1, d.knollPos, kb); p.position.y += Math.sin(Math.PI * kb) * d.arc;
+    p.quaternion.slerpQuaternions(q1, d.knollQ, kb);
+    d.k = k * (1 - kb); d.kb = kb;
+  });
+
+  // 幽灵轮廓与轨迹
+  const vis = eE * (1 - ease(K));
+  ghostLine.opacity = vis * .45;
+  traj.material.opacity = vis * .5;
+  parts.forEach((p, i) => {
+    const d = p.userData.part;
+    tmp.copy(d.base).add(d.center); tmp2.copy(p.position).add(d.center);
+    trajPos.set([tmp.x, tmp.y, tmp.z, tmp2.x, tmp2.y, tmp2.z], i * 6);
+  });
+  trajGeo.attributes.position.needsUpdate = true;
+  traj.computeLineDistances();
+
+  // 镜头
+  if (!camGoal && !focusPart && !KT) { const dy = lift * .8 - lastLift; controls.target.y += dy; camera.position.y += dy; }
+  lastLift = (!KT && !focusPart) ? lift * .8 : lastLift;
+  if (camGoal) {
+    if (camGoal.follow) { worldCenter(camGoal.follow, tmp); camGoal.pos.add(tmp2.copy(tmp).sub(camGoal.target)); camGoal.target.copy(tmp); }
+    camera.position.lerp(camGoal.pos, .07); controls.target.lerp(camGoal.target, .07);
+    if (!camGoal.follow && camera.position.distanceTo(camGoal.pos) < .02) camGoal = null;
+  }
+  controls.autoRotate = !focusPart && !KT;
+  camera.fov = 40 + eE * (1 - K) * 12; camera.updateProjectionMatrix();
+  controls.update();
+
+  // 动画细节
+  wheels.forEach(w => w.rotation.x -= dt * 2);
+  core.rotation.y += dt * 1.5;
+  core.userData.rings[0].rotation.z += dt * 2; core.userData.rings[1].rotation.y += dt * 3;
+  M.paint.color.lerp(paintT, .08);
+  uFloor.uTime.value = t; uFloor.uE.value = eE;
+  holoAll.forEach(m => m.uniforms.uTime.value = t);
+  holoBy.power.uniforms.uDim.value = .6 + .25 * Math.sin(t * 5);
+  shadow.material.opacity = .35 * (1 - eE * .6) * (1 - K);
+  specsEl.style.opacity = focusPart || scan ? 0 : 1 - clamp01(E * 2 + K * 2);
+
+  const scanZ = updateScan(t, dt);
+
+  // X 光转场：裁剪平面从车头扫到车尾
+  xr = approach(xr, xrT, .8);
+  const s = xr <= 0 ? -1e3 : xr >= 1 ? 1e3 : xrZ[0] + (xrZ[1] - xrZ[0]) * ease(xr);
+  clipOrig.constant = -s; clipHolo.constant = s;
+  Object.values(holoBy).forEach(m => m.visible = xr > 0);
+  seam.visible = xr > 0 && xr < 1;
+  seam.position.z = s;
+  scene.background.lerpColors(bgBase, bgXray, ease(xr));
+  bloom.strength = .6 + ease(xr) * .1;
+  updateFlow(t, ease(xr) * (1 - K) * (focusPart ? 0 : 1));
+
+  // 悬停 + 扫描高亮（轮廓线变白）
+  hot = pick();
+  canvas.style.cursor = hot ? 'pointer' : 'grab';
+  parts.forEach(p => {
+    const d = p.userData.part;
+    d.flash = Math.max(0, (d.flash || 0) - dt * 1.5);
+    let h = Math.max(p === hot || p === focusPart ? 1 : 0, d.flash);
+    if (scanZ !== null) h = Math.max(h, 1 - Math.abs(p.position.z + d.center.z - scanZ) / .5);
+    const dimmed = focusPart && p !== focusPart;
+    d.edges.forEach(e => { e.material.color.copy(e.userData.c0).lerp(xrayEdge, xr * .6).lerp(white, clamp01(h)); e.material.opacity = e.userData.op * (dimmed ? .15 : 1); });
+  });
+
+  // 标注：爆炸时两侧引线排版，平铺时贴在部件下方
+  const W = innerWidth, mobile = W < 760, list = [];
+  let minX = 1e9, maxX = -1e9, sumX = 0, n = 0;
+  labeled.forEach(p => {
+    const d = p.userData.part, s = screenOf(p);
+    d.sx = s.x; d.sy = s.y;
+    d.cv = s.behind || mobile || focusPart ? 0 : clamp01((d.k - .6) / .4);
+    d.tv = !s.behind && d.kb > .95 && (!focusPart || p === focusPart) ? 1 : 0;
+    if (d.cv > 0) { list.push(d); minX = Math.min(minX, s.x); maxX = Math.max(maxX, s.x); sumX += s.x; n++; }
+  });
+  const cx = n ? sumX / n : W / 2;
+  const colL = Math.min(Math.max(minX - 50, 190), W / 2 - 60), colR = Math.max(Math.min(maxX + 50, W - 190), W / 2 + 60);
+  list.forEach(d => { d.y = d.sy; });
+  layoutCallouts(list);
+  labeled.forEach(p => {
+    const d = p.userData.part, el = d.el;
+    if (d.tv && !d.cv) {
+      el.className = 'co tag' + (p === hot ? ' hot' : '');
+      el.style.left = d.sx + 'px'; el.style.right = 'auto'; el.style.top = d.sy + 'px';
+      el.style.opacity = 1;
+      d.path.style.opacity = d.dot.style.opacity = 0;
+      return;
+    }
+    el.style.opacity = d.cv;
+    d.path.style.opacity = d.dot.style.opacity = d.cv;
+    if (!d.cv) return;
+    const L = d.side === 'L', col = L ? colL : colR;
+    el.className = `co ${d.side}` + (p === hot ? ' hot' : '') + (d.compact ? ' compact' : '');
+    el.style.top = d.ly - (d.compact ? 8 : 14) + 'px';
+    if (L) { el.style.left = 'auto'; el.style.right = W - col + 'px'; } else { el.style.right = 'auto'; el.style.left = col + 'px'; }
+    const color = L ? '#ff3dbb' : '#5ff8ff';
+    d.path.setAttribute('d', `M${d.sx},${d.sy} L${col + (L ? 22 : -22)},${d.ly} L${col},${d.ly}`);
+    d.path.setAttribute('stroke', color);
+    d.dot.setAttribute('cx', d.sx); d.dot.setAttribute('cy', d.sy); d.dot.setAttribute('fill', color);
+  });
+
+  rng.value = Math.round(E * 100); val.textContent = Math.round(E * 100) + '%';
+  if (modeNow() !== segMode) { segMode = modeNow(); updateSeg(); }
+  composer.render();
+});
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight);
+  updateSeg();
+});
+</script>
+<script src="shared.js"></script>
+</body>
+</html>

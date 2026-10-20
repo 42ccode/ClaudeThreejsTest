@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>失重网页 · Gravity</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root { --ink: #16161d; --bg: #f4f1ea; --y: #ffd84d; --c: #7cf7ff; --p: #ff8fd8; --v: #b9a2ff; --g: #8dffb0; }
+  html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--ink); font-family: "Inter", "PingFang SC", system-ui, sans-serif; user-select: none; -webkit-user-select: none; }
+  body { background-image: radial-gradient(#16161d14 1.2px, transparent 1.2px); background-size: 22px 22px; }
+  .page { height: 100vh; display: flex; flex-direction: column; padding: 22px 5vw 120px; gap: 3vh; }
+  .phys { display: inline-block; will-change: transform; }
+  .active .phys { cursor: grab; }
+  .active .phys:active { cursor: grabbing; }
+
+  nav { display: flex; align-items: center; gap: 28px; font-weight: 600; font-size: 15px; }
+  .logo { font-weight: 900; font-size: 20px; letter-spacing: .05em; padding: 6px 14px; background: var(--ink); color: var(--bg); border-radius: 10px; }
+  nav .sp { flex: 1; }
+  .box { border: 2.5px solid var(--ink); box-shadow: 4px 4px 0 var(--ink); border-radius: 14px; }
+  .btn { padding: 12px 22px; font-weight: 800; font-size: 15px; border-radius: 999px; }
+
+  .hero { display: flex; flex-direction: column; align-items: flex-start; gap: 2.2vh; margin-top: 2vh; }
+  .badge { padding: 6px 14px; background: var(--g); font-size: 13px; font-weight: 700; border-radius: 999px; }
+  h1 { font-size: clamp(54px, 10vw, 150px); font-weight: 900; line-height: .95; letter-spacing: -.03em; }
+  h1 .ch { padding: 0 .01em; }
+  h1 .hl { color: var(--bg); -webkit-text-stroke: 3px var(--ink); text-shadow: 6px 6px 0 var(--p); }
+  .sub { font-size: clamp(15px, 1.5vw, 19px); line-height: 1.6; max-width: 640px; color: #3a3a46; }
+  .cta { display: flex; gap: 14px; flex-wrap: wrap; }
+
+  .row { display: flex; gap: 18px; flex-wrap: wrap; align-items: stretch; }
+  .card { width: 240px; padding: 18px; }
+  .card .ic { font-size: 28px; }
+  .card h3 { margin: 8px 0 4px; font-size: 18px; }
+  .card p { font-size: 13px; line-height: 1.5; color: #3a3a46; }
+  .stat { padding: 14px 18px; text-align: center; min-width: 120px; }
+  .stat b { display: block; font-size: 28px; font-weight: 900; }
+  .stat small { font-size: 12px; color: #3a3a46; }
+  .deco { position: absolute; font-size: 44px; line-height: 1; }
+  .round { border-radius: 50%; }
+  .ball { width: 86px; height: 86px; display: inline-grid; place-items: center; font-size: 34px; }
+
+  .ctrl { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); z-index: 50; display: flex; gap: 8px; padding: 8px; border-radius: 999px; background: var(--ink); box-shadow: 0 12px 40px -10px #0006; }
+  .ctrl button { border: 0; background: none; color: #f4f1ea; padding: 10px 16px; border-radius: 999px; font-size: 14px; font-weight: 700; transition: .25s; white-space: nowrap; }
+  .ctrl button:hover { background: #ffffff1c; }
+  .ctrl button.on { background: var(--y); color: var(--ink); }
+  .ctrl kbd { font: 600 10px "SF Mono", monospace; opacity: .5; margin-left: 4px; }
+  .tip { position: fixed; left: 50%; bottom: 92px; transform: translateX(-50%); z-index: 50; font-size: 13px; font-weight: 700; padding: 8px 14px; background: var(--y); border: 2px solid var(--ink); border-radius: 999px; animation: bob 1.4s ease-in-out infinite; transition: opacity .4s; white-space: nowrap; pointer-events: none; }
+  .active .tip { opacity: 0; animation: none; }
+  @keyframes bob { 50% { transform: translate(-50%, -6px); } }
+  .count { position: fixed; top: 24px; right: 5vw; z-index: 50; font: 700 12px "SF Mono", monospace; letter-spacing: .2em; padding: 8px 12px; background: var(--ink); color: var(--bg); border-radius: 8px; opacity: 0; transition: opacity .3s; }
+  .active .count { opacity: 1; }
+  /* 共享菜单在浅色页面上改为深色 */
+  .pt-btn, .bgm-btn { background: var(--ink) !important; border-color: var(--ink) !important; }
+  @media (max-width: 760px) {
+    nav a.lk { display: none; } .card { width: calc(50% - 9px); padding: 12px; } .card p { display: none; }
+    .page { padding: 16px 16px 150px; gap: 2vh; } .deco { display: none; }
+    .ctrl { bottom: 84px; flex-wrap: wrap; justify-content: center; border-radius: 22px; width: calc(100% - 32px); } .ctrl button { padding: 8px 10px; font-size: 12px; } .ctrl kbd { display: none; }
+    .tip { bottom: 170px; }
+  }
+</style>
+</head>
+<body>
+<div class="count" id="count">0 BODIES</div>
+<div class="page">
+  <nav>
+    <span class="logo phys">◐ NEBULA</span>
+    <a class="lk phys">产品</a><a class="lk phys">案例</a><a class="lk phys">定价</a><a class="lk phys">关于</a>
+    <span class="sp"></span>
+    <span class="btn box phys" style="background:var(--c)">免费试用</span>
+  </nav>
+
+  <section class="hero">
+    <span class="badge box phys">✦ 全新发布 · 物理引擎 v2.0</span>
+    <h1><span class="line" data-split>让网页</span><br><span class="line hl" data-split>拥有重力</span></h1>
+    <p class="sub"><span class="phys">我们用 Matter.js 物理引擎，</span><span class="phys">重新定义网页上的每一个元素——</span><span class="phys">它们会掉落、</span><span class="phys">碰撞、</span><span class="phys">弹跳，</span><span class="phys">也能被你抓起来扔出去。</span></p>
+    <div class="cta">
+      <span class="btn box phys" style="background:var(--y)">开始体验 →</span>
+      <span class="btn box phys" style="background:#fff">▶ 观看演示</span>
+    </div>
+  </section>
+
+  <div class="row">
+    <div class="card box phys" style="background:var(--c)"><div class="ic">⚡</div><h3>实时刚体</h3><p>每个 DOM 元素都映射成一个带摩擦与弹性的刚体。</p></div>
+    <div class="card box phys" style="background:var(--p)"><div class="ic">🧲</div><h3>拖拽抛掷</h3><p>抓起任何东西，用力一甩，它会按惯性飞出去。</p></div>
+    <div class="card box phys" style="background:var(--v)"><div class="ic">🪐</div><h3>失重漂浮</h3><p>关掉重力，整页内容像在太空舱里缓缓漂移。</p></div>
+    <div class="stat box phys" style="background:#fff"><b>60</b><small>FPS 物理步进</small></div>
+    <div class="stat box phys" style="background:var(--y)"><b>∞</b><small>种玩法</small></div>
+    <span class="ball box round phys" style="background:var(--g)">🏀</span>
+  </div>
+  <span class="deco phys round" style="top:16vh;right:9vw">⭐</span>
+  <span class="deco phys round" style="top:34vh;right:22vw">🍩</span>
+  <span class="deco phys round" style="top:52vh;right:6vw">🎈</span>
+</div>
+
+<div class="tip" id="tip">👇 点一下“开启重力”试试</div>
+<div class="ctrl" id="ctrl">
+  <button data-m="fall">⬇ 开启重力<kbd>G</kbd></button>
+  <button data-m="float">🪐 失重漂浮<kbd>F</kbd></button>
+  <button data-m="flip">⬆ 反转重力<kbd>V</kbd></button>
+  <button data-m="restore">↺ 复原<kbd>R</kbd></button>
+</div>
+
+<script src="https://unpkg.com/matter-js@0.20.0/build/matter.min.js"></script>
+<script>
+const { Engine, Bodies, Body, Composite, Mouse, MouseConstraint, Query } = Matter;
+
+// 标题逐字拆成独立的刚体
+document.querySelectorAll('[data-split]').forEach(el => {
+  el.innerHTML = [...el.textContent].map(c => `<span class="ch phys">${c}</span>`).join('');
+});
+
+const engine = Engine.create({ gravity: { x: 0, y: 0 } });
+const mouse = Mouse.create(document.body);
+const grab = MouseConstraint.create(engine, { mouse, constraint: { stiffness: .25, damping: .1 } });
+let items = [], active = false, mode = '';
+
+function walls() {
+  const W = innerWidth, H = innerHeight, T = 200, o = { isStatic: true, friction: .4, restitution: .3 };
+  return [
+    Bodies.rectangle(W / 2, H + T / 2, W * 3, T, o), Bodies.rectangle(W / 2, -T / 2, W * 3, T, o),
+    Bodies.rectangle(-T / 2, H / 2, T, H * 3, o), Bodies.rectangle(W + T / 2, H / 2, T, H * 3, o),
+  ];
+}
+
+function activate() {
+  if (active) return;
+  active = true;
+  items = [...document.querySelectorAll('.phys')].map(el => {
+    el.style.transition = ''; el.style.transform = '';
+    const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
+    const x = r.left + r.width / 2, y = r.top + r.height / 2;
+    const opts = { restitution: .35, friction: .35, frictionAir: .012, density: .0012 };
+    const body = el.classList.contains('round')
+      ? Bodies.circle(x, y, Math.max(r.width, r.height) / 2, opts)
+      : Bodies.rectangle(x, y, r.width, r.height, { ...opts, chamfer: { radius: Math.max(1, Math.min(parseFloat(cs.borderTopLeftRadius) || 2, r.width / 2 - 1, r.height / 2 - 1)) } });
+    return { el, body, x0: x, y0: y };
+  });
+  Composite.add(engine.world, [...items.map(i => i.body), ...walls(), grab]);
+  document.body.classList.add('active');
+  document.getElementById('count').textContent = items.length + ' BODIES';
+}
+
+function setMode(m) {
+  if (m === 'restore') return restore();
+  activate();
+  mode = m;
+  engine.gravity.y = m === 'fall' ? 1 : m === 'flip' ? -1 : 0;
+  if (m === 'float') items.forEach(i => {
+    Body.setVelocity(i.body, { x: (Math.random() - .5) * 4, y: (Math.random() - .5) * 4 - 1 });
+    Body.setAngularVelocity(i.body, (Math.random() - .5) * .05);
+    i.body.frictionAir = .002;
+  }); else items.forEach(i => i.body.frictionAir = .012);
+  if (m === 'flip') items.forEach(i => Body.setVelocity(i.body, { x: i.body.velocity.x, y: -3 }));
+  document.querySelectorAll('[data-m]').forEach(b => b.classList.toggle('on', b.dataset.m === m));
+}
+
+function restore() {
+  if (!active) return;
+  active = false; mode = '';
+  Composite.clear(engine.world, false);
+  // 先把角度归一到 ±π，再用交错的过渡飞回原位
+  items.forEach(i => {
+    const a = Math.atan2(Math.sin(i.body.angle), Math.cos(i.body.angle));
+    i.el.style.transform = `translate(${i.body.position.x - i.x0}px, ${i.body.position.y - i.y0}px) rotate(${a}rad)`;
+  });
+  document.body.offsetWidth;
+  items.forEach((i, k) => {
+    i.el.style.transition = `transform .9s cubic-bezier(.3, 1.4, .5, 1) ${k * 14}ms`;
+    i.el.style.transform = '';
+  });
+  document.body.classList.remove('active');
+  document.querySelectorAll('[data-m]').forEach(b => b.classList.remove('on'));
+}
+
+// 控制条不参与拖拽
+const ctrl = document.getElementById('ctrl');
+['mousedown', 'touchstart', 'pointerdown'].forEach(n => ctrl.addEventListener(n, e => e.stopPropagation()));
+ctrl.querySelectorAll('[data-m]').forEach(b => b.onclick = () => setMode(b.dataset.m));
+addEventListener('keydown', e => {
+  const k = { g: 'fall', f: 'float', v: 'flip', r: 'restore' }[e.key];
+  if (k) setMode(k);
+});
+
+// 双击：以该点为中心的冲击波
+addEventListener('dblclick', e => {
+  if (!active) return;
+  items.forEach(i => {
+    const dx = i.body.position.x - e.clientX, dy = i.body.position.y - e.clientY, d = Math.hypot(dx, dy);
+    if (d < 420) { const f = (1 - d / 420) * .06 * i.body.mass; Body.applyForce(i.body, i.body.position, { x: dx / d * f, y: dy / d * f - f * .4 }); }
+  });
+});
+
+let last = performance.now();
+(function tick(now) {
+  if (active) {
+    Engine.update(engine, Math.min(now - last, 33));
+    items.forEach(i => {
+      const { x, y } = i.body.position;
+      i.el.style.transform = `translate(${x - i.x0}px, ${y - i.y0}px) rotate(${i.body.angle}rad)`;
+    });
+  }
+  last = now;
+  requestAnimationFrame(tick);
+})(last);
+addEventListener('resize', () => { if (active) restore(); });
+</script>
+<script src="shared.js"></script>
+</body>
+</html>

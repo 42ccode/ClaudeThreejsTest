@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>粒子文字 · Typography</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; background: #05040c; color: #eef1ff; font-family: "Inter", "PingFang SC", system-ui, sans-serif; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  .top { position: fixed; top: 28px; left: 5vw; right: 5vw; display: flex; justify-content: space-between; font-size: 12px; letter-spacing: .4em; z-index: 2; pointer-events: none; }
+  .top b { color: #7cf7ff; font-weight: 500; }
+  .fx { position: fixed; top: 50%; right: 5vw; transform: translateY(-50%); display: flex; flex-direction: column; gap: 12px; z-index: 5; }
+  .fx button { width: 76px; height: 76px; border-radius: 50%; border: 1px solid #ffffff30; background: #ffffff08; color: #fff; font-size: 13px; letter-spacing: .1em; backdrop-filter: blur(10px); transition: .3s; }
+  .fx button:hover { background: linear-gradient(135deg, #7cf7ff, #ff5fd2); color: #05040c; border-color: transparent; transform: scale(1.08); }
+  .panel { position: fixed; left: 50%; bottom: 36px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 14px; z-index: 5; width: min(560px, calc(100% - 120px)); }
+  .field { display: flex; width: 100%; border: 1px solid #ffffff30; border-radius: 999px; background: #ffffff0a; backdrop-filter: blur(12px); padding: 6px; }
+  .field input { flex: 1; min-width: 0; background: none; border: 0; outline: 0; color: #fff; font-size: 16px; padding: 10px 18px; font-family: inherit; }
+  .field input::placeholder { color: #8b90b8; }
+  .field button { border: 0; border-radius: 999px; padding: 10px 24px; background: linear-gradient(90deg, #7cf7ff, #ff5fd2); color: #05040c; font-weight: 700; letter-spacing: .1em; }
+  .chips { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+  .chips button { border: 1px solid #ffffff22; background: transparent; color: #b8bce0; border-radius: 999px; padding: 6px 14px; font-size: 12px; transition: .3s; }
+  .chips button:hover { color: #fff; border-color: #7cf7ff; }
+  @media (max-width: 700px) {
+    .fx { top: auto; bottom: 220px; right: 50%; transform: translateX(50%); flex-direction: row; }
+    .fx button { width: 58px; height: 58px; font-size: 12px; }
+    .panel { width: calc(100% - 32px); bottom: 84px; }
+    .top { left: 16px; right: 16px; }
+  }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<div class="top"><span>TYPOGRAPHY / 04</span><span>粒子数 <b id="count">0</b></span></div>
+<div class="fx">
+  <button data-fx="explode">爆炸</button>
+  <button data-fx="vortex">漩涡</button>
+  <button data-fx="gravity">重力</button>
+</div>
+<div class="panel">
+  <form class="field" id="form"><input id="inp" maxlength="10" placeholder="输入任意文字，回车生成…" /><button>生成</button></form>
+  <div class="chips">
+    <button>你好世界</button><button>THREE.JS</button><button>创意无限</button><button>CLAUDE</button><button>❤ LOVE</button><button>2026</button>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+const MAX = innerWidth < 700 ? 5000 : 10000;
+document.getElementById('count').textContent = MAX.toLocaleString();
+
+const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('gl'), antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 200);
+const fitCamera = () => { camera.position.z = Math.max(18, 11 / (Math.tan(THREE.MathUtils.degToRad(25)) * camera.aspect)); };
+fitCamera();
+
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+composer.addPass(new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.9, 0.5, 0.0));
+composer.addPass(new OutputPass());
+
+// 粒子状态
+const pos = new Float32Array(MAX * 3), vel = new Float32Array(MAX * 3), tgt = new Float32Array(MAX * 3);
+const colors = new Float32Array(MAX * 3), spd = new Float32Array(MAX);
+for (let i = 0; i < MAX * 3; i++) pos[i] = (Math.random() - .5) * 60;
+const geo = new THREE.BufferGeometry();
+geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+geo.setAttribute('aColor', new THREE.BufferAttribute(colors, 3));
+geo.setAttribute('aSpeed', new THREE.BufferAttribute(spd, 1));
+const mat = new THREE.ShaderMaterial({
+  uniforms: { uSize: { value: 70 * Math.min(devicePixelRatio, 2) / 2 } },
+  transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  vertexShader: /* glsl */`
+    uniform float uSize; attribute vec3 aColor; attribute float aSpeed; varying vec3 vC;
+    void main(){
+      vec4 mv = modelViewMatrix * vec4(position, 1.);
+      gl_Position = projectionMatrix * mv;
+      gl_PointSize = uSize * (1. + aSpeed * 1.5) / -mv.z;
+      vC = mix(aColor, vec3(1.), aSpeed * .7);
+    }`,
+  fragmentShader: /* glsl */`
+    varying vec3 vC;
+    void main(){ float d = length(gl_PointCoord - .5); gl_FragColor = vec4(vC, smoothstep(.5, .1, d) * .9); }`,
+});
+const points = new THREE.Points(geo, mat);
+const group = new THREE.Group();
+group.add(points);
+scene.add(group);
+
+// 背景尘埃
+const dust = new THREE.BufferGeometry();
+const dp = new Float32Array(1500 * 3).map(() => (Math.random() - .5) * 120);
+dust.setAttribute('position', new THREE.BufferAttribute(dp, 3));
+const dustPts = new THREE.Points(dust, new THREE.PointsMaterial({ size: 0.12, color: 0x6670aa, transparent: true, opacity: .6 }));
+scene.add(dustPts);
+
+// 文字采样
+const cv = document.createElement('canvas'), ctx = cv.getContext('2d', { willReadFrequently: true });
+cv.width = 1200; cv.height = 300;
+const SCALE = 1 / 55;
+function sample(str) {
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  let fs = 220;
+  const font = s => `900 ${s}px "PingFang SC","Microsoft YaHei","Inter",system-ui,sans-serif`;
+  ctx.font = font(fs);
+  const w = ctx.measureText(str).width;
+  if (w > 1120) { fs *= 1120 / w; ctx.font = font(fs); }
+  ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(str, cv.width / 2, cv.height / 2);
+  const data = ctx.getImageData(0, 0, cv.width, cv.height).data;
+  const pts = [];
+  for (let y = 0; y < cv.height; y += 3) for (let x = 0; x < cv.width; x += 3)
+    if (data[(y * cv.width + x) * 4 + 3] > 128) pts.push((x - cv.width / 2) * SCALE, -(y - cv.height / 2) * SCALE);
+  return pts;
+}
+
+let hue = Math.random();
+const c = new THREE.Color();
+function setText(str) {
+  str = str.trim(); if (!str) return;
+  const pts = sample(str), n = pts.length / 2;
+  if (!n) return;
+  // 打乱索引，让粒子从各处飞来
+  const order = Array.from({ length: MAX }, (_, i) => i).sort(() => Math.random() - .5);
+  hue = (hue + 0.17 + Math.random() * 0.2) % 1;
+  for (let k = 0; k < MAX; k++) {
+    const i = order[k], j = (k % n) * 2, extra = k >= n;
+    tgt[i * 3] = pts[j] + (extra ? (Math.random() - .5) * .06 : 0);
+    tgt[i * 3 + 1] = pts[j + 1] + (extra ? (Math.random() - .5) * .06 : 0);
+    tgt[i * 3 + 2] = (Math.random() - .5) * .5;
+    c.setHSL((hue + pts[j] * 0.015 + 1) % 1, .9, .6);
+    colors.set([c.r, c.g, c.b], i * 3);
+    // 带切向速度，形成旋入的轨迹
+    vel[i * 3] += -pos[i * 3 + 1] * 0.01; vel[i * 3 + 1] += pos[i * 3] * 0.01;
+  }
+  geo.attributes.aColor.needsUpdate = true;
+}
+
+// 效果模式
+let mode = 'spring', modeUntil = 0;
+function fx(name) {
+  const now = performance.now();
+  if (name === 'explode') {
+    for (let i = 0; i < MAX; i++) {
+      const a = Math.random() * Math.PI * 2, b = Math.acos(Math.random() * 2 - 1), s = .4 + Math.random() * 1.2;
+      vel[i * 3] += Math.sin(b) * Math.cos(a) * s; vel[i * 3 + 1] += Math.sin(b) * Math.sin(a) * s; vel[i * 3 + 2] += Math.cos(b) * s;
+    }
+  } else { mode = name; modeUntil = now + 2600; }
+}
+document.querySelectorAll('[data-fx]').forEach(b => b.onclick = e => { e.stopPropagation(); fx(b.dataset.fx); });
+
+// 鼠标
+const mouse = new THREE.Vector2(9, 9), mWorld = new THREE.Vector3(999, 999, 0), ray = new THREE.Raycaster();
+const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+addEventListener('pointermove', e => mouse.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1));
+addEventListener('pointerleave', () => mouse.set(9, 9));
+renderer.domElement.addEventListener('pointerdown', () => fx('explode'));
+
+// 文字输入与轮播
+const words = ['你好世界', 'THREE.JS', '创意无限', 'CLAUDE', '❤ LOVE'];
+let wi = 0, autoTimer;
+const auto = () => { clearInterval(autoTimer); autoTimer = setInterval(() => setText(words[++wi % words.length]), 5000); };
+document.getElementById('form').onsubmit = e => { e.preventDefault(); setText(document.getElementById('inp').value); clearInterval(autoTimer); setTimeout(auto, 12000); };
+document.querySelectorAll('.chips button').forEach(b => b.onclick = () => { setText(b.textContent); auto(); });
+setText(words[0]); auto();
+
+const clock = new THREE.Clock();
+renderer.setAnimationLoop(() => {
+  const dt = clock.getDelta(), t = clock.elapsedTime, now = performance.now();
+  const f = Math.min(Math.max(dt * 60, 0.5), 4); // 帧率无关的步长系数
+  const sk = 0.018 * f, d87 = Math.pow(.87, f), d95 = Math.pow(.95, f), d99 = Math.pow(.99, f);
+  if (mode !== 'spring' && now > modeUntil) mode = 'spring';
+
+  ray.setFromCamera(mouse, camera);
+  if (mouse.x > 5 || !ray.ray.intersectPlane(plane, mWorld)) mWorld.set(999, 999, 0);
+  const lx = mWorld.x - group.position.x, ly = mWorld.y - group.position.y;
+
+  const floor = -camera.position.z * Math.tan(THREE.MathUtils.degToRad(25)) + 1;
+  for (let i = 0; i < MAX; i++) {
+    const ix = i * 3, iy = ix + 1, iz = ix + 2;
+    let px = pos[ix], py = pos[iy], pz = pos[iz];
+    if (mode === 'spring') {
+      vel[ix] += (tgt[ix] - px) * sk; vel[iy] += (tgt[iy] - py) * sk; vel[iz] += (tgt[iz] - pz) * sk;
+      vel[ix] *= d87; vel[iy] *= d87; vel[iz] *= d87;
+    } else if (mode === 'vortex') {
+      const r = Math.hypot(px, py) + .5;
+      vel[ix] += ((-py / r) * .09 - px * .004) * f; vel[iy] += ((px / r) * .09 - py * .004) * f; vel[iz] += Math.sin(t * 3 + i) * .01 * f;
+      vel[ix] *= d95; vel[iy] *= d95; vel[iz] *= d95;
+    } else if (mode === 'gravity') {
+      vel[iy] -= .018 * f; vel[ix] *= d99; vel[iz] *= d99;
+      if (py < floor) { pos[iy] = py = floor; vel[iy] *= -.45; vel[ix] *= .8; }
+    }
+    // 鼠标排斥
+    const dx = px - lx, dy = py - ly, d2 = dx * dx + dy * dy;
+    if (d2 < 6) { const f = (6 - d2) / 6 * .25, d = Math.sqrt(d2) + .01; vel[ix] += dx / d * f; vel[iy] += dy / d * f; vel[iz] += f * .5; }
+    pos[ix] += vel[ix] * f; pos[iy] += vel[iy] * f; pos[iz] += vel[iz] * f;
+    spd[i] = Math.min(Math.hypot(vel[ix], vel[iy], vel[iz]) * 3, 1);
+  }
+  geo.attributes.position.needsUpdate = true;
+  geo.attributes.aSpeed.needsUpdate = true;
+
+  group.rotation.y += ((mouse.x < 5 ? mouse.x * .25 : Math.sin(t * .5) * .15) - group.rotation.y) * .05;
+  group.rotation.x += ((mouse.x < 5 ? -mouse.y * .15 : 0) - group.rotation.x) * .05;
+  dustPts.rotation.y = t * .02;
+  composer.render();
+});
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight; fitCamera(); camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight);
+});
+</script>
+<script src="shared.js"></script>
+</body>
+</html>
