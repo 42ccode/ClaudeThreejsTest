@@ -98,7 +98,7 @@
 
   // 背景音乐
   const bgm = document.createElement('script');
-  bgm.src = 'bgm.js';
+  bgm.src = 'bgm.js?v=20261022';
   document.body.appendChild(bgm);
 
   // 菜单

@@ -7,8 +7,10 @@
 页面使用 ES Module 与 CDN 依赖，需要通过本地服务器打开（直接双击 HTML 会被浏览器拦截）：
 
 ```bash
-python3 -m http.server 5173
+python3 serve.py
 ```
+
+`serve.py` 和 `python3 -m http.server` 一样，但会禁止浏览器缓存，改完代码普通刷新即可看到最新效果。
 
 然后访问 http://localhost:5173/hub.html （作品大厅）。
 
