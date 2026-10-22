@@ -38,7 +38,7 @@
   <div class="head"><div class="glitch" data-t="NEON DRIVE">NEON DRIVE</div><div class="tag">霓 虹 公 路</div></div>
   <div class="dash"><div class="spd" id="spd">120</div><small>KM/H · TURBO <span id="turbo">OFF</span></small></div>
   <div class="player">
-    <div>NOW PLAYING<br><b style="color:#fff">午夜霓虹 — Nebula FM</b></div>
+    <div>NOW PLAYING<br><b style="color:#fff">午夜霓虹 — Nebula Trap</b></div>
     <div class="eq" id="eq"></div>
   </div>
 </div>
@@ -219,7 +219,7 @@ renderer.setAnimationLoop(() => {
   speed += ((boost ? 55 : 14) - speed) * 0.03;
   u.uTime.value = t;
   u.uTravel.value -= speed * dt;
-  // 120 BPM 的节拍脉冲
+  // 节拍脉冲：播放音乐时跟随真实底鼓，否则按固定节奏
   u.uBeat.value = window.BGM?.playing ? BGM.pulse() : Math.pow(1 - ((t * 2) % 1), 4);
 
   poles.forEach(p => { p.position.z += speed * dt; if (p.position.z > 6) p.position.z -= 24 * 6; });

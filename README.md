@@ -30,5 +30,5 @@ python3 -m http.server 5173
 ## 共享模块
 
 - `shared.js` — 全站菜单、圆形转场、自定义光标，并加载 BGM
-- `bgm.js` — Web Audio 实时合成的 120 BPM synthwave 背景音乐（M 键开关）
+- `bgm.js` — Web Audio 实时合成的 140 BPM trap 背景音乐（默认静音，M 键开关）
 - `car.js` — 程序化科幻跑车模型，霓虹公路与跑车解构共用

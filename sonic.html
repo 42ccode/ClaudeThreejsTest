@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>声波星球 · Sonic Planet</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; background: #03020a; color: #eef1ff; font-family: "Inter", "PingFang SC", system-ui, sans-serif; user-select: none; -webkit-user-select: none; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  .mono { font-family: "SF Mono", ui-monospace, Menlo, monospace; }
+  .head { position: fixed; top: 28px; left: 5vw; z-index: 2; pointer-events: none; }
+  .head .tag { font-size: 11px; letter-spacing: .4em; color: #ff3dbb; }
+  .head h1 { font-size: clamp(44px, 7vw, 100px); font-weight: 900; letter-spacing: -.02em; margin-top: 8px; line-height: 1; }
+  .head h1 em { font-style: normal; background: linear-gradient(90deg, #5ff8ff, #ff3dbb); -webkit-background-clip: text; color: transparent; }
+  .head p { margin-top: 10px; font-size: 12px; letter-spacing: .25em; color: #8b90b8; }
+  .meters { position: fixed; right: 5vw; top: 50%; transform: translateY(-50%); z-index: 2; display: flex; gap: 14px; align-items: flex-end; pointer-events: none; }
+  .meter { display: flex; flex-direction: column; align-items: center; gap: 8px; font-size: 10px; letter-spacing: .2em; color: #8b90b8; }
+  .meter .bar { width: 10px; height: 160px; border-radius: 6px; background: #ffffff12; position: relative; overflow: hidden; }
+  .meter .bar i { position: absolute; left: 0; right: 0; bottom: 0; height: 0; border-radius: 6px; background: linear-gradient(#ff3dbb, #5ff8ff); box-shadow: 0 0 12px #5ff8ff; }
+  .bpm { position: fixed; right: 5vw; top: calc(50% + 130px); z-index: 2; text-align: right; font-size: 10px; letter-spacing: .3em; color: #8b90b8; pointer-events: none; }
+  .bpm b { display: block; font-size: 34px; font-weight: 200; color: #fff; letter-spacing: 0; }
+  #prompt { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 6; padding: 22px 34px; border-radius: 999px; border: 1px solid #ffffff33; background: #0a0816b0; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); color: #fff; font-size: 16px; letter-spacing: .15em; transition: opacity .6s, transform .6s; box-shadow: 0 0 60px -10px #ff3dbb88; }
+  #prompt b { display: inline-grid; place-items: center; width: 34px; height: 34px; margin-right: 12px; border-radius: 50%; background: linear-gradient(135deg, #5ff8ff, #ff3dbb); color: #03020a; vertical-align: middle; }
+  #prompt:hover { transform: translate(-50%, -50%) scale(1.05); }
+  #prompt.hide { opacity: 0; pointer-events: none; transform: translate(-50%, -40%); }
+  .ctrl { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 5; display: flex; gap: 6px; padding: 8px; border-radius: 999px; border: 1px solid #ffffff22; background: #0a0816c0; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+  .ctrl button { border: 1px solid transparent; background: none; color: #c9cde8; padding: 9px 16px; border-radius: 999px; font-size: 13px; letter-spacing: .08em; transition: .3s; white-space: nowrap; }
+  .ctrl button:hover { border-color: #ffffff44; }
+  .ctrl button.on { background: linear-gradient(90deg, #5ff8ff, #ff3dbb); color: #03020a; font-weight: 700; }
+  @media (max-width: 760px) { .head { left: 16px; } .meters, .bpm { display: none; } .ctrl { bottom: 84px; } #prompt { font-size: 13px; padding: 16px 22px; white-space: nowrap; } }
+</style>
+</head>
+<body>
+<div class="head">
+  <div class="tag mono">SONIC PLANET / 11 · AUDIO REACTIVE</div>
+  <h1>声波<em>星球</em></h1>
+  <p>实时 FFT 频谱驱动地形 · 底鼓触发粒子喷发</p>
+</div>
+<div class="meters mono"><div class="meter"><div class="bar"><i id="mB"></i></div>BASS</div><div class="meter"><div class="bar"><i id="mM"></i></div>MID</div><div class="meter"><div class="bar"><i id="mH"></i></div>HIGH</div></div>
+<div class="bpm mono">TEMPO<b>140</b>BPM · C MINOR</div>
+<button id="prompt"><b>▶</b>播放音乐，让星球随节拍律动</button>
+<div class="ctrl">
+  <button id="play">▶ 播放</button>
+  <button id="wire" class="on">线框</button>
+  <button id="spin" class="on">自转</button>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+document.body.prepend(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, .1, 200);
+camera.position.set(0, 2.6, camera.aspect < 1 ? 15 : 10);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; controls.enablePan = false;
+controls.autoRotate = true; controls.autoRotateSpeed = .6;
+controls.minDistance = 6; controls.maxDistance = 22;
+
+// ---------- 频谱数据纹理 ----------
+const BINS = 128;
+const raw = new Uint8Array(BINS), wave = new Uint8Array(BINS * 2), smooth = new Float32Array(BINS);
+const specTex = new THREE.DataTexture(new Uint8Array(BINS), BINS, 1, THREE.RedFormat);
+specTex.magFilter = specTex.minFilter = THREE.LinearFilter;
+specTex.needsUpdate = true;
+
+// ---------- 星球：频谱 + 噪声位移 ----------
+const NOISE = /* glsl */`
+  vec3 mod289(vec3 x){ return x - floor(x * (1. / 289.)) * 289.; }
+  vec4 mod289(vec4 x){ return x - floor(x * (1. / 289.)) * 289.; }
+  vec4 permute(vec4 x){ return mod289(((x * 34.) + 1.) * x); }
+  vec4 taylorInvSqrt(vec4 r){ return 1.79284291400159 - .85373472095314 * r; }
+  float snoise(vec3 v){
+    const vec2 C = vec2(1. / 6., 1. / 3.); const vec4 D = vec4(0., .5, 1., 2.);
+    vec3 i = floor(v + dot(v, C.yyy)), x0 = v - i + dot(i, C.xxx);
+    vec3 g = step(x0.yzx, x0.xyz), l = 1. - g, i1 = min(g.xyz, l.zxy), i2 = max(g.xyz, l.zxy);
+    vec3 x1 = x0 - i1 + C.xxx, x2 = x0 - i2 + C.yyy, x3 = x0 - D.yyy;
+    i = mod289(i);
+    vec4 p = permute(permute(permute(i.z + vec4(0., i1.z, i2.z, 1.)) + i.y + vec4(0., i1.y, i2.y, 1.)) + i.x + vec4(0., i1.x, i2.x, 1.));
+    vec3 ns = .142857142857 * D.wyz - D.xzx;
+    vec4 j = p - 49. * floor(p * ns.z * ns.z), x_ = floor(j * ns.z), y_ = floor(j - 7. * x_);
+    vec4 x = x_ * ns.x + ns.yyyy, y = y_ * ns.x + ns.yyyy, h = 1. - abs(x) - abs(y);
+    vec4 b0 = vec4(x.xy, y.xy), b1 = vec4(x.zw, y.zw), s0 = floor(b0) * 2. + 1., s1 = floor(b1) * 2. + 1., sh = -step(h, vec4(0.));
+    vec4 a0 = b0.xzyw + s0.xzyw * sh.xxyy, a1 = b1.xzyw + s1.xzyw * sh.zzww;
+    vec3 p0 = vec3(a0.xy, h.x), p1 = vec3(a0.zw, h.y), p2 = vec3(a1.xy, h.z), p3 = vec3(a1.zw, h.w);
+    vec4 norm = taylorInvSqrt(vec4(dot(p0, p0), dot(p1, p1), dot(p2, p2), dot(p3, p3)));
+    p0 *= norm.x; p1 *= norm.y; p2 *= norm.z; p3 *= norm.w;
+    vec4 m = max(.6 - vec4(dot(x0, x0), dot(x1, x1), dot(x2, x2), dot(x3, x3)), 0.); m = m * m;
+    return 42. * dot(m * m, vec4(dot(p0, x0), dot(p1, x1), dot(p2, x2), dot(p3, x3)));
+  }`;
+const uni = { uSpec: { value: specTex }, uTime: { value: 0 }, uKick: { value: 0 }, uLevel: { value: 0 } };
+const planetVS = NOISE + /* glsl */`
+  uniform sampler2D uSpec; uniform float uTime, uKick, uLevel;
+  varying float vD; varying vec3 vPos;
+  void main(){
+    vec3 n = normalize(position);
+    float s = texture2D(uSpec, vec2((1. - abs(n.y)) * .55 + .02, .5)).r;   // 赤道 = 低音，两极 = 高音
+    float d = s * .75 + snoise(n * 2.2 + uTime * .25) * (.1 + uLevel * .2) + uKick * .12;
+    vD = d;
+    vec4 w = modelMatrix * vec4(n * (2. + d), 1.);
+    vPos = w.xyz;
+    gl_Position = projectionMatrix * viewMatrix * w;
+  }`;
+const planet = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 48), new THREE.ShaderMaterial({
+  uniforms: uni, vertexShader: planetVS,
+  fragmentShader: /* glsl */`
+    varying float vD; varying vec3 vPos;
+    void main(){
+      vec3 n = normalize(cross(dFdx(vPos), dFdy(vPos)));
+      float dif = max(dot(n, normalize(vec3(.6, .8, .5))), 0.);
+      float fres = pow(1. - max(dot(n, normalize(cameraPosition - vPos)), 0.), 3.);
+      vec3 base = mix(vec3(.08, .02, .2), vec3(.1, .75, 1.), smoothstep(0., .55, vD));
+      base = mix(base, vec3(1., .3, .8), smoothstep(.5, 1., vD));
+      gl_FragColor = vec4(base * (.25 + .75 * dif) + vec3(.4, .6, 1.) * fres * .7, 1.);
+    }`,
+}));
+const wire = new THREE.Mesh(planet.geometry, new THREE.ShaderMaterial({
+  uniforms: uni, vertexShader: planetVS, wireframe: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+  fragmentShader: `varying float vD; void main(){ gl_FragColor = vec4(mix(vec3(.3, .9, 1.), vec3(1., .4, .9), smoothstep(.2, .9, vD)) * (.06 + vD * .22), 1.); }`,
+}));
+wire.scale.setScalar(1.004);
+scene.add(planet, wire);
+
+// ---------- 赤道频率柱环 ----------
+const NBAR = 96;
+const bars = new THREE.InstancedMesh(new THREE.BoxGeometry(.07, 1, .07), new THREE.MeshBasicMaterial(), NBAR);
+const col = new THREE.Color(), dummy = new THREE.Object3D();
+for (let i = 0; i < NBAR; i++) bars.setColorAt(i, col.setHSL(.5 + .38 * Math.abs(i / NBAR * 2 - 1), 1, .6));
+scene.add(bars);
+
+// ---------- 示波器波形环 ----------
+const wavePos = new Float32Array(wave.length * 3);
+const waveLine = new THREE.LineLoop(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(wavePos, 3)), new THREE.LineBasicMaterial({ color: 0xff7ad9, transparent: true, opacity: .8 }));
+waveLine.rotation.x = .45;
+scene.add(waveLine);
+
+// ---------- 底鼓粒子 ----------
+const PN = 2400;
+const pPos = new Float32Array(PN * 3), pVel = new Float32Array(PN * 3), pLife = new Float32Array(PN), pCol = new Float32Array(PN * 3), pBase = new Float32Array(PN * 3);
+const pGeo = new THREE.BufferGeometry();
+pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
+pGeo.setAttribute('color', new THREE.BufferAttribute(pCol, 3));
+const particles = new THREE.Points(pGeo, new THREE.PointsMaterial({ size: .06, vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+particles.frustumCulled = false;
+scene.add(particles);
+let pHead = 0;
+function burst(n, power) {
+  for (let k = 0; k < n; k++) {
+    const i = pHead = (pHead + 1) % PN, v = new THREE.Vector3().randomDirection();
+    pPos.set([v.x * 2.3, v.y * 2.3, v.z * 2.3], i * 3);
+    const sp = (1.5 + Math.random() * 3) * power;
+    pVel.set([v.x * sp, v.y * sp, v.z * sp], i * 3);
+    pLife[i] = 1;
+    col.setHSL(Math.random() < .5 ? .52 : .9, 1, .65);
+    pBase.set([col.r, col.g, col.b], i * 3);
+  }
+}
+
+// 星空
+const stars = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(3000 * 3).map(() => (Math.random() - .5) * 160), 3)),
+  new THREE.PointsMaterial({ size: .12, color: 0x8899ff, transparent: true, opacity: .6 }));
+scene.add(stars);
+
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), .6, .45, .35);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+// ---------- 界面 ----------
+const $ = id => document.getElementById(id);
+const startMusic = () => window.BGM?.start?.();
+$('prompt').onclick = startMusic;
+$('play').onclick = () => window.BGM?.toggle?.();
+$('wire').onclick = () => { wire.visible = !wire.visible; $('wire').classList.toggle('on', wire.visible); };
+$('spin').onclick = () => { controls.autoRotate = !controls.autoRotate; $('spin').classList.toggle('on', controls.autoRotate); };
+const band = (a, b) => { let s = 0; for (let i = a; i < b; i++) s += smooth[i]; return s / (b - a); };
+
+let last = performance.now(), lastBeat = 0, kick = 0, playing = null;
+renderer.setAnimationLoop(now => {
+  const dt = Math.min((now - last) / 1000, .05), t = now / 1000; last = now;
+  const bgm = window.BGM, on = !!bgm?.playing;
+  if (on !== playing) { playing = on; $('prompt').classList.toggle('hide', on); $('play').textContent = on ? '❚❚ 暂停' : '▶ 播放'; $('play').classList.toggle('on', on); }
+
+  // 频谱：有音乐时读取 FFT，否则用缓慢起伏的假频谱让星球“呼吸”
+  if (on) bgm.spectrum(raw);
+  for (let i = 0; i < BINS; i++) {
+    const v = on ? raw[i] / 255 : (.22 + .12 * Math.sin(t * 1.6 + i * .18)) * (1 - i / BINS);
+    smooth[i] = Math.max(v, smooth[i] * .88);
+    specTex.image.data[i] = Math.round(Math.min(smooth[i], 1) * 255);
+  }
+  specTex.needsUpdate = true;
+  const level = band(0, 64);
+
+  const beat = bgm?.pulse?.() || 0;
+  if (on && beat > .9 && lastBeat < .8) { kick = 1; burst(140, 1); }
+  lastBeat = beat;
+  kick *= Math.pow(.02, dt);
+  uni.uTime.value = t; uni.uKick.value = kick; uni.uLevel.value = level;
+
+  // 频率柱：左右镜像
+  for (let i = 0; i < NBAR; i++) {
+    const a = i / NBAR * Math.PI * 2, bin = Math.floor(Math.abs(i / NBAR * 2 - 1) * 70);
+    const h = .08 + smooth[bin] * 2.;
+    dummy.position.set(Math.cos(a) * 3.5, 0, Math.sin(a) * 3.5);
+    dummy.rotation.y = -a;
+    dummy.scale.set(1, h, 1);
+    dummy.updateMatrix();
+    bars.setMatrixAt(i, dummy.matrix);
+  }
+  bars.instanceMatrix.needsUpdate = true;
+  bars.rotation.y += dt * .1;
+
+  // 波形环
+  if (on) bgm.waveform(wave); else wave.fill(128);
+  for (let i = 0; i < wave.length; i++) {
+    const a = i / wave.length * Math.PI * 2, r = 4.5 + (wave[i] - 128) / 128 * .9;
+    wavePos.set([Math.cos(a) * r, 0, Math.sin(a) * r], i * 3);
+  }
+  waveLine.geometry.attributes.position.needsUpdate = true;
+  waveLine.rotation.z += dt * .15;
+
+  // 粒子
+  for (let i = 0; i < PN; i++) {
+    if (pLife[i] <= 0) { pCol[i * 3] = pCol[i * 3 + 1] = pCol[i * 3 + 2] = 0; continue; }
+    pLife[i] -= dt * .7;
+    for (let k = 0; k < 3; k++) { pPos[i * 3 + k] += pVel[i * 3 + k] * dt; pVel[i * 3 + k] *= .985; pCol[i * 3 + k] = pBase[i * 3 + k] * Math.max(pLife[i], 0); }
+  }
+  pGeo.attributes.position.needsUpdate = true; pGeo.attributes.color.needsUpdate = true;
+
+  planet.rotation.y = wire.rotation.y += dt * .08;
+  planet.scale.setScalar(1 + kick * .04); wire.scale.setScalar(1.004 + kick * .04);
+  bloom.strength = .5 + level * .35 + kick * .25;
+  $('mB').style.height = Math.min(band(0, 8) * 110, 100) + '%';
+  $('mM').style.height = Math.min(band(8, 40) * 140, 100) + '%';
+  $('mH').style.height = Math.min(band(40, 100) * 260, 100) + '%';
+
+  controls.update();
+  composer.render();
+});
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight);
+});
+</script>
+<script src="shared.js"></script>
+</body>
+</html>
