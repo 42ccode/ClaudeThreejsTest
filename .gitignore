@@ -14,6 +14,7 @@ dist/
 *.log
 .env
 .env.*
+!.env.example
 
 # Claude Code 本地设置（launch.json 保留，用于预览服务器）
 .claude/settings.local.json
