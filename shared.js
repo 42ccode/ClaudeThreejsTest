@@ -11,6 +11,8 @@
     ['blackhole.html', '事件视界', 'Black Hole'],
     ['physics.html', '物理实验室', 'Physics Lab'],
     ['gravity.html', '失重网页', 'Gravity'],
+    ['fluid.html', '流体墨水', 'Fluid'],
+    ['sonic.html', '声波星球', 'Sonic Planet'],
   ];
   const here = location.pathname.split('/').pop() || 'index.html';
 
@@ -25,7 +27,7 @@
   .pt-open .pt-btn span:last-child{transform:translateY(-4.5px) rotate(-45deg)}
   .pt-menu{position:fixed;inset:0;z-index:800;background:#04030ae8;backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);display:flex;flex-direction:column;justify-content:center;padding:0 10vw;opacity:0;visibility:hidden;transition:opacity .5s,visibility .5s}
   .pt-open .pt-menu{opacity:1;visibility:visible}
-  .pt-menu a{display:flex;align-items:baseline;gap:24px;color:#eef1ff;text-decoration:none;font:800 clamp(22px,min(5.4vw,6.4vh),68px)/1.18 "PingFang SC",system-ui,sans-serif;letter-spacing:-.02em;opacity:0;transform:translateY(60px);transition:opacity .6s,transform .8s cubic-bezier(.2,.9,.2,1),color .3s}
+  .pt-menu a{display:flex;align-items:baseline;gap:24px;color:#eef1ff;text-decoration:none;font:800 clamp(20px,min(5vw,5.6vh),64px)/1.16 "PingFang SC",system-ui,sans-serif;letter-spacing:-.02em;opacity:0;transform:translateY(60px);transition:opacity .6s,transform .8s cubic-bezier(.2,.9,.2,1),color .3s}
   .pt-open .pt-menu a{opacity:1;transform:none}
   .pt-menu a small{font:500 12px system-ui;letter-spacing:.3em;color:#7cf7ff;width:36px;flex:none}
   .pt-menu a em{font:400 13px system-ui;font-style:normal;letter-spacing:.25em;color:#8b90b8;text-transform:uppercase}
@@ -80,7 +82,7 @@
   const menu = document.createElement('nav');
   menu.className = 'pt-menu';
   menu.innerHTML = PAGES.map(([href, zh, en], i) =>
-    `<a href="${href}" data-page class="${href === here ? 'cur' : ''}" style="transition-delay:${0.05 + i * 0.06}s"><small>0${i}</small>${zh}<em>${en}</em></a>`
+    `<a href="${href}" data-page class="${href === here ? 'cur' : ''}" style="transition-delay:${0.05 + i * 0.06}s"><small>${String(i).padStart(2, '0')}</small>${zh}<em>${en}</em></a>`
   ).join('');
   document.body.append(menu, btn);
   addEventListener('keydown', e => { if (e.key === 'Escape') document.body.classList.remove('pt-open'); });
