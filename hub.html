@@ -180,9 +180,10 @@ const cardFS = /* glsl */`
       vec2 bp = vec2(mix(-.1, .45, smoothstep(.3, .52, ph)), .48);
       col += vec3(.6, 1., 1.) * exp(-length((uv - bp) * vec2(1., 1.35)) * 40.) * step(ph, .56);
     } else if (uIdx > 6.5 && uIdx < 7.5) {
-      // 失重网页：浅色页面上的色块坠落堆叠
-      col = vec3(.95, .93, .89);
-      col -= .05 * smoothstep(.12, 0., length(fract(uv * vec2(30., 40.)) - .5));
+      // 失重网页：深色底上的彩色方块坠落堆叠（大厅泛光阈值很低，浅色底会过曝成白板）
+      col = vec3(.035, .035, .05);
+      col += vec3(1., .85, .3) * .07 * smoothstep(.12, 0., length(fract(uv * vec2(30., 40.)) - .5));
+      col += vec3(1., .85, .3) * .35 * smoothstep(.004, 0., abs(uv.y - .265));
       float ph = fract(t * .3);
       for (int k = 0; k < 8; k++) { float fk = float(k);
         vec2 c0 = vec2(.15 + fk * .1, .78 - mod(fk, 2.) * .1);
@@ -193,8 +194,8 @@ const cardFS = /* glsl */`
         vec2 qq = abs(d * vec2(1., 1.35)) - vec2(.04, .05);
         float sd = length(max(qq, 0.)) + min(max(qq.x, qq.y), 0.);
         vec3 pc = fk < 2. ? vec3(1., .85, .3) : fk < 4. ? vec3(.49, .97, 1.) : fk < 6. ? vec3(1., .56, .85) : vec3(.72, .64, 1.);
-        col = mix(col, pc, step(sd, 0.));
-        col = mix(col, vec3(.09), smoothstep(.006, 0., abs(sd)));
+        col = mix(col, pc * .55, step(sd, 0.));
+        col = mix(col, pc, smoothstep(.006, 0., abs(sd)));
       }
     }
     // 标题贴图

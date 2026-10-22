@@ -2,7 +2,7 @@
 // 对外暴露 window.BGM：playing / pulse()（0~1 鼓点脉冲）/ level() / toggle() / leave()
 (() => {
   const BPM = 120, STEP = 60 / BPM / 4, BARS = 16, STEPS = BARS * 16, VOL = 0.55;
-  const PREF = 'nebula-bgm', POS = 'nebula-bgm-pos';
+  const SEEN = 'nebula-bgm-seen', POS = 'nebula-bgm-pos';
   const get = (s, k) => { try { return s.getItem(k); } catch { return null; } };
   const set = (s, k, v) => { try { s.setItem(k, v); } catch {} };
 
@@ -145,7 +145,7 @@
     const g = master.gain, now = ctx.currentTime;
     g.cancelScheduledValues(now); g.setValueAtTime(g.value, now); g.linearRampToValueAtTime(VOL, now + 1.2);
     clearInterval(timer); timer = setInterval(tick, 25); tick();
-    set(localStorage, PREF, 'on');
+    set(localStorage, SEEN, '1');
     ui();
   };
   BGM.stop = () => {
@@ -155,12 +155,11 @@
     const g = master.gain, now = ctx.currentTime;
     g.cancelScheduledValues(now); g.setValueAtTime(g.value, now); g.linearRampToValueAtTime(0, now + 0.5);
     setTimeout(() => { if (!BGM.playing) clearInterval(timer); }, 600);
-    set(localStorage, PREF, 'off');
     ui();
   };
   BGM.toggle = () => (BGM.playing ? BGM.stop() : BGM.start());
   BGM.save = () => { if (ctx) set(sessionStorage, POS, curStep() % STEPS); };
-  BGM.leave = () => { // 切换页面：记住位置并淡出，但保留“开启”偏好
+  BGM.leave = () => { // 切换页面：记住播放位置并淡出
     if (!BGM.playing) return;
     BGM.save();
     const g = master.gain, now = ctx.currentTime;
@@ -206,9 +205,10 @@
   tip.className = 'bgm-tip';
   document.body.append(btn, tip);
   const bars = [...btn.children];
-  const pref = get(localStorage, PREF);
-  tip.textContent = pref === 'on' ? '♪ 点击任意处继续播放' : '♪ 开启电子音乐';
-  if (pref === 'off') tip.classList.add('hide');
+  // 默认静音：每次打开页面都不发声，只在用户点按钮或按 M 时播放
+  tip.textContent = '♪ 开启电子音乐';
+  if (get(localStorage, SEEN)) tip.classList.add('hide');
+  else setTimeout(() => tip.classList.add('hide'), 6000);
   function ui() {
     btn.classList.toggle('on', BGM.playing);
     tip.classList.add('hide');
@@ -216,15 +216,6 @@
   btn.addEventListener('click', e => { e.stopPropagation(); BGM.toggle(); });
   addEventListener('keydown', e => { if (e.key === 'm' && !e.target.closest('input,textarea')) BGM.toggle(); });
 
-  // 浏览器要求用户交互后才能出声：之前开过音乐的话，首次点击/按键即续播
-  if (pref === 'on') {
-    const resume = e => {
-      if (e.target.closest?.('.bgm-btn')) return;
-      BGM.start();
-      ['pointerdown', 'keydown'].forEach(n => removeEventListener(n, resume, true));
-    };
-    ['pointerdown', 'keydown'].forEach(n => addEventListener(n, resume, true));
-  }
 
   const BINS = [2, 5, 10, 20, 40];
   (function meter() {
