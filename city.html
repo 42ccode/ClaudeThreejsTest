@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>赛博城市 · Cyber City</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; background: #05030c; color: #f0eaff; font-family: "Inter", "PingFang SC", system-ui, sans-serif; user-select: none; -webkit-user-select: none; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  .mono { font-family: "SF Mono", ui-monospace, Menlo, monospace; }
+  .head { position: fixed; top: 28px; left: 5vw; z-index: 2; pointer-events: none; }
+  .head .tag { font-size: 11px; letter-spacing: .4em; color: #ff3dbb; }
+  .head h1 { font-size: clamp(44px, 7vw, 100px); font-weight: 900; letter-spacing: -.02em; margin-top: 8px; line-height: 1; text-shadow: 0 0 30px #ff3dbb88; }
+  .head p { margin-top: 10px; font-size: 12px; letter-spacing: .25em; color: #a8a0c8; }
+  .hud { position: fixed; right: 5vw; top: 32px; z-index: 2; text-align: right; font-size: 11px; letter-spacing: .3em; color: #a8a0c8; pointer-events: none; line-height: 2; }
+  .hud b { display: block; font-size: 34px; font-weight: 200; color: #5ff8ff; letter-spacing: 0; }
+  .ctrl { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 5; display: flex; align-items: center; gap: 6px; padding: 8px; border-radius: 999px; border: 1px solid #ffffff22; background: #0a0614e6; }
+  .ctrl button { border: 1px solid transparent; background: none; color: #ddd4f0; padding: 9px 14px; border-radius: 999px; font-size: 13px; letter-spacing: .08em; transition: .3s; white-space: nowrap; }
+  .ctrl button:hover { border-color: #ffffff44; }
+  .ctrl button.on { background: linear-gradient(90deg, #ff3dbb, #5ff8ff); color: #05030c; font-weight: 700; }
+  .ctrl .sep { width: 1px; align-self: stretch; background: #ffffff22; margin: 4px; }
+  .hint { position: fixed; left: 5vw; bottom: 40px; z-index: 2; font-size: 11px; letter-spacing: .25em; color: #a8a0c8; pointer-events: none; }
+  @media (max-width: 760px) {
+    .head { left: 16px; } .hint { display: none; } .hud { top: 120px; right: 16px; }
+    .ctrl { bottom: 84px; flex-wrap: wrap; justify-content: center; border-radius: 22px; width: calc(100% - 32px); } .ctrl .sep { display: none; }
+    .ctrl button { padding: 8px 10px; font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+<div class="head">
+  <div class="tag mono">CYBER CITY / SCENE · FLYTHROUGH</div>
+  <h1>赛博城市</h1>
+  <p>雨夜 · 霓虹 · 穿梭在悬浮车流之间</p>
+</div>
+<div class="hud mono">速度 SPEED<b id="spd">80</b>高度 ALT <span id="alt">42</span> M</div>
+<div class="hint mono">移动鼠标转向 · 按住加速</div>
+<div class="ctrl">
+  <button id="rain" class="on">🌧 雨</button>
+  <button id="cars" class="on">🚗 车流</button>
+  <button data-v="chase" class="on">巡航</button>
+  <button data-v="high">高空</button>
+  <button data-v="low">街道</button>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+document.body.prepend(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x07040f);
+scene.fog = new THREE.FogExp2(0x0d0618, .011);
+const camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, .5, 900);
+
+// ---------- 楼群：沿 z 方向重复的街区，大道两侧排布 ----------
+const BLOCK = 300, ROWS = 2;   // 两个街区首尾循环
+const buildingMat = new THREE.ShaderMaterial({
+  uniforms: { uTime: { value: 0 }, fogColor: { value: scene.fog.color }, fogDensity: { value: scene.fog.density } },
+  vertexShader: /* glsl */`
+    attribute vec4 aInfo;   // x 窗户亮灯率, y 色相种子, z 宽, w 高
+    varying vec3 vPos, vN; varying vec4 vInfo; varying float vFog;
+    void main(){
+      vInfo = aInfo; vN = normal; vPos = position * vec3(aInfo.z, aInfo.w, aInfo.z);
+      vec4 mv = modelViewMatrix * instanceMatrix * vec4(position, 1.);
+      vFog = -mv.z;
+      gl_Position = projectionMatrix * mv;
+    }`,
+  fragmentShader: /* glsl */`
+    uniform float uTime; uniform vec3 fogColor; uniform float fogDensity;
+    varying vec3 vPos, vN; varying vec4 vInfo; varying float vFog;
+    float h21(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+    void main(){
+      vec3 base = vec3(.03, .025, .06);
+      vec3 col = base;
+      if (abs(vN.y) < .5) {
+        // 立面：按楼层与开间切出窗户，随机点亮，少数窗户闪烁
+        vec2 f = vec2(abs(vN.x) > .5 ? vPos.z : vPos.x, vPos.y);
+        vec2 cell = floor(f / vec2(2.2, 3.)), w = fract(f / vec2(2.2, 3.));
+        float win = step(.18, w.x) * step(w.x, .82) * step(.25, w.y) * step(w.y, .75);
+        float r = h21(cell + vInfo.y * 31.);
+        float on = step(1. - vInfo.x, r) * (r > .985 ? step(.5, fract(uTime * .5 + r * 9.)) : 1.);
+        vec3 wc = mix(vec3(1., .75, .45), vec3(.45, .85, 1.), step(.6, h21(cell + 7.)));
+        col += wc * win * on * .5;
+        // 楼顶霓虹边线
+        col += mix(vec3(1., .24, .73), vec3(.37, .97, 1.), step(.5, vInfo.y)) * smoothstep(.8, 0., vInfo.w - vPos.y) * .9;
+      }
+      col = mix(fogColor, col, exp(-fogDensity * fogDensity * vFog * vFog));
+      gl_FragColor = vec4(col, 1.);
+    }`,
+});
+const boxGeo = new THREE.BoxGeometry(1, 1, 1); boxGeo.translate(0, .5, 0);
+const blocks = [];
+function makeBlock() {
+  const n = 220, mesh = new THREE.InstancedMesh(boxGeo.clone(), buildingMat, n), info = new Float32Array(n * 4), m = new THREE.Matrix4();
+  for (let i = 0; i < n; i++) {
+    const side = i % 2 ? 1 : -1, lane = Math.floor(Math.random() * 4);
+    const w = 8 + Math.random() * 10, h = 20 + Math.pow(Math.random(), 1.8) * 160 * (lane > 1 ? 1.2 : .8);
+    const x = side * (26 + lane * 24 + Math.random() * 6), z = -Math.random() * BLOCK;
+    m.compose(new THREE.Vector3(x, 0, z), new THREE.Quaternion(), new THREE.Vector3(w, h, w));
+    mesh.setMatrixAt(i, m);
+    info.set([.25 + Math.random() * .45, Math.random(), w, h], i * 4);
+  }
+  mesh.geometry.setAttribute('aInfo', new THREE.InstancedBufferAttribute(info, 4));
+  mesh.frustumCulled = false;
+  scene.add(mesh); return mesh;
+}
+for (let r = 0; r < ROWS; r++) { const b = makeBlock(); b.position.z = -r * BLOCK; blocks.push(b); }
+
+// 悬挂的霓虹招牌
+const SIGNS = ['夜市', 'NEO', '拉面', 'CYBER', '电子', 'HOTEL', '酒吧', '24H', '未来', 'ARCADE'];
+const signs = [];
+SIGNS.forEach((txt, i) => {
+  const c = document.createElement('canvas'); c.width = 256; c.height = 128;
+  const g = c.getContext('2d'), color = i % 3 === 0 ? '#5ff8ff' : i % 3 === 1 ? '#ff3dbb' : '#ffd84d';
+  g.font = '900 72px "PingFang SC",sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.shadowColor = color; g.shadowBlur = 18; g.fillStyle = color; g.fillText(txt, 128, 64);
+  g.strokeStyle = color; g.lineWidth = 4; g.strokeRect(6, 6, 244, 116);
+  const s = new THREE.Mesh(new THREE.PlaneGeometry(10, 5), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, side: THREE.DoubleSide, fog: true }));
+  const side = i % 2 ? 1 : -1;
+  s.position.set(side * (20 + Math.random() * 3), 12 + Math.random() * 40, -i * 60 - Math.random() * 20);
+  s.rotation.y = -side * Math.PI / 2;
+  scene.add(s); signs.push(s);
+});
+
+// 地面：湿润路面反光 + 车道线
+const road = new THREE.Mesh(new THREE.PlaneGeometry(400, 2000), new THREE.ShaderMaterial({
+  uniforms: { uZ: { value: 0 }, fogColor: { value: scene.fog.color } },
+  vertexShader: `varying vec3 vW; void main(){ vec4 w = modelMatrix * vec4(position, 1.); vW = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
+  fragmentShader: /* glsl */`
+    uniform float uZ; uniform vec3 fogColor; varying vec3 vW;
+    void main(){
+      vec3 c = vec3(.02, .015, .04);
+      float lane = smoothstep(.15, 0., abs(abs(vW.x) - 6.)) * step(.5, fract((vW.z) * .05));
+      c += vec3(.9, .8, .4) * lane * .6 + vec3(1., .24, .73) * smoothstep(.3, 0., abs(abs(vW.x) - 14.)) * .5;
+      float d = length(vW.xz - cameraPosition.xz);
+      gl_FragColor = vec4(mix(fogColor, c, exp(-d * .012)), 1.);
+    }`,
+}));
+road.rotation.x = -Math.PI / 2; scene.add(road);
+
+// ---------- 悬浮车流：多层航道，前灯白、尾灯红 ----------
+const NCAR = 360;
+const cars = new THREE.InstancedMesh(new THREE.BoxGeometry(.6, .4, 3.2), new THREE.MeshBasicMaterial({ color: 0xffffff }), NCAR);
+const carData = [];
+const white = new THREE.Color(1, .95, .85), red = new THREE.Color(1, .15, .25), cyan = new THREE.Color(.4, .95, 1);
+for (let i = 0; i < NCAR; i++) {
+  const dir = i % 2 ? 1 : -1, laneY = 8 + (i % 6) * 9 + Math.random() * 2, laneX = dir * (3 + (i % 3) * 3.5);
+  carData.push({ x: laneX, y: laneY, z: -Math.random() * BLOCK * ROWS, v: (25 + Math.random() * 25) * dir });
+  cars.setColorAt(i, dir > 0 ? red : (i % 5 ? white : cyan));
+}
+cars.frustumCulled = false; scene.add(cars);
+
+// ---------- 雨 ----------
+const RN = 3500;
+const rainGeo = new THREE.BufferGeometry(), rainPos = new Float32Array(RN * 6);
+rainGeo.setAttribute('position', new THREE.BufferAttribute(rainPos, 3));
+const rainData = Array.from({ length: RN }, () => [(Math.random() - .5) * 120, Math.random() * 90, -Math.random() * 160]);
+const rain = new THREE.LineSegments(rainGeo, new THREE.LineBasicMaterial({ color: 0x8fa8ff, transparent: true, opacity: .35 }));
+rain.frustumCulled = false; scene.add(rain);
+
+// ---------- 交互 ----------
+const $ = id => document.getElementById(id);
+const VIEWS = { chase: 42, high: 110, low: 6 };
+let view = 'chase', boost = false, camZ = 0, speed = 80, alt = 42;
+const mouse = new THREE.Vector2();
+addEventListener('pointermove', e => mouse.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1));
+renderer.domElement.addEventListener('pointerdown', () => boost = true);
+addEventListener('pointerup', () => boost = false);
+$('rain').onclick = () => { rain.visible = !rain.visible; $('rain').classList.toggle('on', rain.visible); };
+$('cars').onclick = () => { cars.visible = !cars.visible; $('cars').classList.toggle('on', cars.visible); };
+document.querySelectorAll('[data-v]').forEach(b => b.onclick = () => { view = b.dataset.v; document.querySelectorAll('[data-v]').forEach(x => x.classList.toggle('on', x === b)); });
+
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+composer.addPass(new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), .6, .4, .4));
+composer.addPass(new OutputPass());
+window.NEBULA?.adaptive(r => { renderer.setPixelRatio(r); composer.setPixelRatio(r); });
+
+const dummy = new THREE.Object3D(), clock = new THREE.Clock();
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 1 / 30), t = clock.elapsedTime;
+  speed += ((boost ? 220 : 80) - speed) * dt * 1.5;
+  camZ -= speed * dt * .25;
+  alt += (VIEWS[view] + mouse.y * 8 - alt) * dt * 1.2;
+  camera.position.set(mouse.x * 8, alt, camZ);
+  camera.lookAt(mouse.x * 20, alt - (view === 'high' ? 40 : 4), camZ - 80);
+  camera.rotation.z += -mouse.x * .08;
+  camera.fov = 62 + (speed - 80) / 140 * 18; camera.updateProjectionMatrix();
+
+  // 街区首尾循环：落到镜头后方的街区挪到最前面
+  blocks.forEach(b => { if (b.position.z > camZ + BLOCK) b.position.z -= BLOCK * ROWS; });
+  signs.forEach(s => { if (s.position.z > camZ + 30) s.position.z -= 600; });
+  road.position.z = camZ - 500;
+
+  if (cars.visible) {
+    carData.forEach((c, i) => {
+      c.z += c.v * dt;
+      if (c.z > camZ + 40) c.z -= BLOCK * ROWS; else if (c.z < camZ - BLOCK * ROWS + 40) c.z += BLOCK * ROWS;
+      dummy.position.set(c.x, c.y + Math.sin(t * 2 + i) * .3, c.z);
+      dummy.rotation.set(0, c.v > 0 ? Math.PI : 0, 0);
+      dummy.scale.set(1, 1, 1 + Math.abs(c.v) / 40);
+      dummy.updateMatrix(); cars.setMatrixAt(i, dummy.matrix);
+    });
+    cars.instanceMatrix.needsUpdate = true;
+  }
+  if (rain.visible) {
+    for (let i = 0; i < RN; i++) {
+      const r = rainData[i];
+      r[1] -= dt * 70; if (r[1] < 0) { r[1] += 90; r[0] = (Math.random() - .5) * 120; r[2] = -Math.random() * 160; }
+      const x = camera.position.x + r[0], y = r[1] + Math.max(alt - 45, 0), z = camZ + r[2], k = i * 6;
+      rainPos[k] = x; rainPos[k + 1] = y; rainPos[k + 2] = z; rainPos[k + 3] = x; rainPos[k + 4] = y - 1.6; rainPos[k + 5] = z + speed * .01;
+    }
+    rainGeo.attributes.position.needsUpdate = true;
+  }
+  buildingMat.uniforms.uTime.value = t;
+  $('spd').textContent = Math.round(speed);
+  $('alt').textContent = Math.round(alt);
+  composer.render();
+});
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight);
+});
+</script>
+<script src="shared.js?v=20261022"></script>
+</body>
+</html>

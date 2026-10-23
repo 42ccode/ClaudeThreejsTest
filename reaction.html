@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>反应扩散 · Reaction Diffusion</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; background: #000; color: #eef1ff; font-family: "Inter", "PingFang SC", system-ui, sans-serif; user-select: none; -webkit-user-select: none; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  .mono { font-family: "SF Mono", ui-monospace, Menlo, monospace; }
+  .head { position: fixed; top: 28px; left: 5vw; z-index: 2; pointer-events: none; }
+  .head .tag { font-size: 11px; letter-spacing: .4em; color: #8dffb0; }
+  .head h1 { font-size: clamp(44px, 7vw, 100px); font-weight: 900; letter-spacing: -.02em; margin-top: 8px; line-height: 1; text-shadow: 0 4px 30px #000; }
+  .head p { margin-top: 10px; font-size: 12px; letter-spacing: .25em; color: #a3adc8; text-shadow: 0 2px 10px #000; }
+  .info { position: fixed; right: 5vw; top: 32px; z-index: 2; text-align: right; font-size: 11px; letter-spacing: .2em; color: #a3adc8; line-height: 2; pointer-events: none; text-shadow: 0 2px 10px #000; }
+  .info b { color: #fff; font-weight: 500; }
+  .ctrl { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 5; display: flex; align-items: center; gap: 6px; padding: 8px; border-radius: 999px; border: 1px solid #ffffff22; background: #08090ee6; }
+  .ctrl button { border: 1px solid transparent; background: none; color: #c9cde8; padding: 9px 14px; border-radius: 999px; font-size: 13px; letter-spacing: .08em; transition: .3s; white-space: nowrap; }
+  .ctrl button:hover { border-color: #ffffff44; }
+  .ctrl button.on { background: linear-gradient(90deg, #8dffb0, #5ff8ff); color: #04060a; font-weight: 700; }
+  .ctrl .sep { width: 1px; align-self: stretch; background: #ffffff22; margin: 4px; }
+  .hint { position: fixed; left: 5vw; bottom: 40px; z-index: 2; font-size: 11px; letter-spacing: .3em; color: #a3adc8; pointer-events: none; text-shadow: 0 2px 10px #000; }
+  @media (max-width: 760px) {
+    .head { left: 16px; } .info, .hint { display: none; }
+    .ctrl { bottom: 84px; flex-wrap: wrap; justify-content: center; border-radius: 22px; width: calc(100% - 32px); } .ctrl .sep { display: none; }
+    .ctrl button { padding: 8px 10px; font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+<div class="head">
+  <div class="tag mono">REACTION–DIFFUSION / 12 · GRAY–SCOTT</div>
+  <h1>反应扩散</h1>
+  <p>两种化学物质相互反应与扩散 · 自组织出生命般的纹理</p>
+</div>
+<div class="info mono">FEED <b id="fv">0.0545</b><br>KILL <b id="kv">0.0620</b></div>
+<div class="hint mono">按住拖动播种 · 空格重新生成</div>
+<div class="ctrl" id="ctrl">
+  <button data-p="coral" class="on">珊瑚</button>
+  <button data-p="maze">迷宫</button>
+  <button data-p="mitosis">细胞分裂</button>
+  <button data-p="waves">脉冲波</button>
+  <span class="sep"></span>
+  <button id="map">参数地图</button>
+  <button id="pal">换色</button>
+  <button id="reset">重新生成</button>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+// 经典 Gray–Scott 参数（feed 补给率 / kill 消耗率）
+const PRESETS = { coral: [.0545, .062], maze: [.029, .057], mitosis: [.0367, .0649], waves: [.014, .045] };
+const PALETTES = [
+  ['#04060a', '#0b3d2e', '#2fd39a', '#b8ffd9', '#ffffff'],
+  ['#05030c', '#3a0f5e', '#ff3dbb', '#5ff8ff', '#ffffff'],
+  ['#080402', '#4a1305', '#ff6a1a', '#ffd25e', '#fff6e0'],
+  ['#020611', '#0b2a66', '#3d8bff', '#9fe8ff', '#ffffff'],
+];
+
+const renderer = new THREE.WebGLRenderer({ antialias: false });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+document.body.prepend(renderer.domElement);
+const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+const quadScene = new THREE.Scene(), quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2));
+quadScene.add(quad);
+
+// ---------- 模拟网格 ----------
+let W, H, rtA, rtB;
+function makeTargets() {
+  const base = innerWidth < 760 ? 280 : 420, a = innerWidth / innerHeight;
+  [W, H] = a > 1 ? [Math.round(base * a), base] : [base, Math.round(base / a)];
+  const o = { type: THREE.HalfFloatType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false };
+  rtA?.dispose(); rtB?.dispose();
+  rtA = new THREE.WebGLRenderTarget(W, H, o); rtB = new THREE.WebGLRenderTarget(W, H, o);
+}
+
+const VS = `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0., 1.); }`;
+const simMat = new THREE.ShaderMaterial({
+  vertexShader: VS,
+  uniforms: {
+    uState: { value: null }, texel: { value: new THREE.Vector2() }, feed: { value: .0545 }, kill: { value: .062 },
+    brush: { value: new THREE.Vector2(-1, -1) }, brushR: { value: .02 }, aspect: { value: 1 }, mapMode: { value: 0 },
+  },
+  fragmentShader: /* glsl */`
+    precision highp float;
+    varying vec2 vUv; uniform sampler2D uState; uniform vec2 texel, brush; uniform float feed, kill, brushR, aspect, mapMode;
+    vec2 S(vec2 o){ return texture2D(uState, vUv + o * texel).rg; }
+    void main(){
+      vec2 c = S(vec2(0.));
+      // 9 点拉普拉斯
+      vec2 lap = -c + .2 * (S(vec2(1., 0.)) + S(vec2(-1., 0.)) + S(vec2(0., 1.)) + S(vec2(0., -1.)))
+                    + .05 * (S(vec2(1., 1.)) + S(vec2(-1., 1.)) + S(vec2(1., -1.)) + S(vec2(-1., -1.)));
+      // 参数地图：横向 feed、纵向 kill 连续变化，一屏看遍所有图案
+      float f = mix(feed, mix(.01, .1, vUv.y), mapMode), k = mix(kill, mix(.045, .07, vUv.x), mapMode);
+      float a = c.r, b = c.g, abb = a * b * b;
+      a += 1.0 * lap.r - abb + f * (1. - a);
+      b += .5 * lap.g + abb - (k + f) * b;
+      vec2 d = vUv - brush; d.x *= aspect;
+      if (length(d) < brushR) b = .9;
+      gl_FragColor = vec4(clamp(a, 0., 1.), clamp(b, 0., 1.), 0., 1.);
+    }`,
+});
+const seedMat = new THREE.ShaderMaterial({ vertexShader: VS, uniforms: { uSeed: { value: null } },
+  fragmentShader: `varying vec2 vUv; uniform sampler2D uSeed; void main(){ float s = texture2D(uSeed, vUv).r; gl_FragColor = vec4(1., s * .9, 0., 1.); }` });
+
+const display = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
+  vertexShader: VS,
+  uniforms: { uState: { value: null }, texel: { value: new THREE.Vector2() }, c0: { value: new THREE.Color() }, c1: { value: new THREE.Color() }, c2: { value: new THREE.Color() }, c3: { value: new THREE.Color() }, c4: { value: new THREE.Color() } },
+  fragmentShader: /* glsl */`
+    varying vec2 vUv; uniform sampler2D uState; uniform vec2 texel; uniform vec3 c0, c1, c2, c3, c4;
+    float B(vec2 o){ return texture2D(uState, vUv + o * texel).g; }
+    void main(){
+      float b = B(vec2(0.));
+      vec3 col = mix(c0, c1, smoothstep(.08, .2, b));
+      col = mix(col, c2, smoothstep(.2, .3, b));
+      col = mix(col, c3, smoothstep(.3, .4, b));
+      col = mix(col, c4, smoothstep(.4, .55, b));
+      // 用浓度梯度当法线，做出浮雕般的立体光照
+      vec3 n = normalize(vec3((B(vec2(-1., 0.)) - B(vec2(1., 0.))) * 6., (B(vec2(0., -1.)) - B(vec2(0., 1.))) * 6., 1.));
+      float dif = dot(n, normalize(vec3(-.5, .6, .8)));
+      float spec = pow(max(dot(reflect(-normalize(vec3(-.5, .6, .8)), n), vec3(0., 0., 1.)), 0.), 24.);
+      col *= .65 + .5 * dif;
+      col += c3 * spec * smoothstep(.15, .3, b) * .5;
+      // 上下暗角，保证标题与控制条可读
+      col *= mix(.35, 1., smoothstep(0., .22, vUv.y) * smoothstep(1., .72, vUv.y));
+      gl_FragColor = vec4(col, 1.);
+    }`,
+}));
+const displayScene = new THREE.Scene(); displayScene.add(display);
+
+function blit(target, mat) { quad.material = mat; renderer.setRenderTarget(target); renderer.render(quadScene, cam); }
+
+// 初始状态：“NEBULA”字样 + 随机种子点，图案会从文字边缘生长出来
+function seed() {
+  makeTargets();
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const g = cv.getContext('2d');
+  g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+  g.fillStyle = '#fff'; g.font = `900 ${Math.round(H * .26)}px "Inter","PingFang SC",sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText('NEBULA', W / 2, H * .55);
+  for (let i = 0; i < 40; i++) { g.beginPath(); g.arc(Math.random() * W, Math.random() * H, 2 + Math.random() * 4, 0, 7); g.fill(); }
+  const tex = new THREE.CanvasTexture(cv);
+  seedMat.uniforms.uSeed.value = tex;
+  blit(rtA, seedMat);
+  tex.dispose();
+  simMat.uniforms.texel.value.set(1 / W, 1 / H);
+  display.material.uniforms.texel.value.set(1 / W, 1 / H);
+  simMat.uniforms.aspect.value = W / H;
+}
+
+// ---------- 交互 ----------
+const $ = id => document.getElementById(id);
+let preset = 'coral', mapOn = false, palIdx = 0, painting = false;
+const target = new THREE.Vector2(...PRESETS.coral);
+function setPalette(i) { PALETTES[i].forEach((c, k) => display.material.uniforms['c' + k].value.set(c)); }
+setPalette(0);
+$('ctrl').querySelectorAll('[data-p]').forEach(b => b.onclick = () => {
+  preset = b.dataset.p; target.set(...PRESETS[preset]);
+  $('ctrl').querySelectorAll('[data-p]').forEach(x => x.classList.toggle('on', x === b));
+});
+$('map').onclick = () => { mapOn = !mapOn; $('map').classList.toggle('on', mapOn); };
+$('pal').onclick = () => setPalette(palIdx = (palIdx + 1) % PALETTES.length);
+$('reset').onclick = seed;
+addEventListener('keydown', e => { if (e.code === 'Space') { e.preventDefault(); seed(); } });
+const toUv = e => [e.clientX / innerWidth, 1 - e.clientY / innerHeight];
+renderer.domElement.addEventListener('pointerdown', e => { painting = true; simMat.uniforms.brush.value.set(...toUv(e)); });
+addEventListener('pointermove', e => { if (painting) simMat.uniforms.brush.value.set(...toUv(e)); });
+addEventListener('pointerup', () => { painting = false; simMat.uniforms.brush.value.set(-1, -1); });
+
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(displayScene, cam));
+composer.addPass(new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), .45, .4, .55));
+composer.addPass(new OutputPass());
+window.NEBULA?.adaptive(r => { renderer.setPixelRatio(r); composer.setPixelRatio(r); });
+
+seed();
+const ITER = 14;
+const u = simMat.uniforms;
+renderer.setAnimationLoop(() => {
+  // 参数平滑过渡，切换预设时图案会“演化”而不是突变
+  u.feed.value += (target.x - u.feed.value) * .03;
+  u.kill.value += (target.y - u.kill.value) * .03;
+  u.mapMode.value += ((mapOn ? 1 : 0) - u.mapMode.value) * .05;
+  for (let i = 0; i < ITER; i++) {
+    u.uState.value = rtA.texture;
+    blit(rtB, simMat);
+    [rtA, rtB] = [rtB, rtA];
+  }
+  renderer.setRenderTarget(null);
+  display.material.uniforms.uState.value = rtA.texture;
+  composer.render();
+  $('fv').textContent = mapOn ? '0.010 → 0.100' : u.feed.value.toFixed(4);
+  $('kv').textContent = mapOn ? '0.045 → 0.070' : u.kill.value.toFixed(4);
+});
+
+addEventListener('resize', () => {
+  renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight);
+  seed();
+});
+</script>
+<script src="shared.js?v=20261022"></script>
+</body>
+</html>

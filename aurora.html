@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>极光 · Aurora</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; background: #01030a; color: #eef6f2; font-family: "Inter", "PingFang SC", system-ui, sans-serif; user-select: none; -webkit-user-select: none; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  .mono { font-family: "SF Mono", ui-monospace, Menlo, monospace; }
+  .head { position: fixed; top: 28px; left: 5vw; z-index: 2; pointer-events: none; }
+  .head .tag { font-size: 11px; letter-spacing: .4em; color: #6dffb4; }
+  .head h1 { font-size: clamp(44px, 7vw, 100px); font-weight: 200; letter-spacing: .15em; margin-top: 8px; line-height: 1; }
+  .head p { margin-top: 10px; font-size: 12px; letter-spacing: .25em; color: #8fa8a0; }
+  .ctrl { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 5; display: flex; align-items: center; gap: 6px; padding: 8px; border-radius: 999px; border: 1px solid #ffffff22; background: #040a10e6; }
+  .ctrl button { border: 1px solid transparent; background: none; color: #c9e0d8; padding: 9px 14px; border-radius: 999px; font-size: 13px; letter-spacing: .08em; transition: .3s; white-space: nowrap; }
+  .ctrl button:hover { border-color: #ffffff44; }
+  .ctrl button.on { background: linear-gradient(90deg, #6dffb4, #8a7bff); color: #01030a; font-weight: 700; }
+  .ctrl .sep { width: 1px; align-self: stretch; background: #ffffff22; margin: 4px; }
+  .hint { position: fixed; left: 5vw; bottom: 40px; z-index: 2; font-size: 11px; letter-spacing: .3em; color: #8fa8a0; pointer-events: none; }
+  @media (max-width: 760px) {
+    .head { left: 16px; } .hint { display: none; }
+    .ctrl { bottom: 84px; flex-wrap: wrap; justify-content: center; border-radius: 22px; width: calc(100% - 32px); } .ctrl .sep { display: none; }
+    .ctrl button { padding: 8px 10px; font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+<div class="head">
+  <div class="tag mono">AURORA / SHADER · NIGHT SKY</div>
+  <h1>极光</h1>
+  <p>北极圈的夜 · 光帘在头顶缓缓舞动 · 倒映在静湖之中</p>
+</div>
+<div class="hint mono">左右拖动环顾四周</div>
+<div class="ctrl">
+  <button data-c="0" class="on">翡翠绿</button>
+  <button data-c="1">紫罗兰</button>
+  <button data-c="2">绯红</button>
+  <span class="sep"></span>
+  <button id="storm">磁暴</button>
+  <button id="meteor" class="on">流星</button>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+
+const renderer = new THREE.WebGLRenderer({ antialias: false });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+document.body.prepend(renderer.domElement);
+const scene = new THREE.Scene(), cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+const COLS = [[[.2, 1, .55], [.35, .55, 1]], [[.55, .35, 1], [1, .35, .75]], [[1, .25, .3], [1, .7, .3]]];
+const u = {
+  uRes: { value: new THREE.Vector2() }, uTime: { value: 0 }, uYaw: { value: 0 }, uPitch: { value: .18 },
+  uC1: { value: new THREE.Vector3(...COLS[0][0]) }, uC2: { value: new THREE.Vector3(...COLS[0][1]) },
+  uPower: { value: 1 }, uMeteor: { value: new THREE.Vector4(0, 0, 0, -1) },
+};
+scene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
+  uniforms: u,
+  vertexShader: `void main(){ gl_Position = vec4(position.xy, 0., 1.); }`,
+  fragmentShader: /* glsl */`
+    precision highp float;
+    uniform vec2 uRes; uniform float uTime, uYaw, uPitch, uPower; uniform vec3 uC1, uC2; uniform vec4 uMeteor;
+    float h21(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+    float n2(vec2 p){ vec2 i = floor(p), f = fract(p), u = f * f * (3. - 2. * f);
+      return mix(mix(h21(i), h21(i + vec2(1, 0)), u.x), mix(h21(i + vec2(0, 1)), h21(i + vec2(1, 1)), u.x), u.y); }
+    float fbm(vec2 p){ float v = 0., a = .5; for (int i = 0; i < 4; i++) { v += a * n2(p); p = p * 2.03 + 3.1; a *= .5; } return v; }
+
+    // 极光：在不同高度的薄层上采样“光帘”，越高越暗、颜色渐变
+    vec3 aurora(vec3 rd){
+      vec3 acc = vec3(0.);
+      if (rd.y < .02) return acc;
+      for (int i = 0; i < 30; i++) {
+        float fi = float(i), h = 1. + fi * .05;
+        vec2 p = rd.xz * (h / rd.y);
+        float w = p.x * .3 + sin(p.y * .22 + uTime * .12) * 2.2 + fbm(p * .12 + uTime * .025) * 4.;
+        float curtain = exp(-pow(fract(w * .17) - .5, 2.) * 55.);                // 窄而清晰的光帘
+        float rays = pow(fbm(vec2(p.x * 3.5 + uTime * .15, p.y * .05)), 2.) * 2.2;  // 竖向光丝
+        acc += mix(uC1, uC2, fi / 30.) * curtain * (.35 + rays) * exp(-fi * .07) * .14 * uPower;
+      }
+      return acc * smoothstep(.04, .25, rd.y) * smoothstep(1., .45, rd.y);
+    }
+    vec3 sky(vec3 rd){
+      vec3 c = mix(vec3(.01, .025, .05), vec3(.0, .005, .02), clamp(rd.y * 1.6, 0., 1.));
+      vec2 sp = vec2(atan(rd.z, rd.x) * 60., rd.y * 120.);
+      float st = step(.985, h21(floor(sp))) * smoothstep(.3, 0., length(fract(sp) - .5));
+      c += st * (.5 + .5 * sin(uTime * 3. + h21(floor(sp)) * 40.)) * smoothstep(0., .2, rd.y);
+      c += aurora(rd);
+      // 流星：沿一条短线划过
+      if (uMeteor.w > 0.) {
+        vec2 a = uMeteor.xy, b = a + vec2(-.25, -.12);
+        vec2 q = vec2(atan(rd.x, rd.z) - uYaw, rd.y), pa = q - a, ba = b - a;
+        float k = clamp(dot(pa, ba) / dot(ba, ba), 0., uMeteor.w);
+        c += vec3(.9, 1., 1.) * smoothstep(.004, 0., length(pa - ba * k)) * (1. - k) * 2.;
+      }
+      return c;
+    }
+    void main(){
+      vec2 uv = (gl_FragCoord.xy - .5 * uRes) / uRes.y;
+      float cy = cos(uYaw), sy = sin(uYaw), cp = cos(uPitch), sp = sin(uPitch);
+      vec3 fw = vec3(sy * cp, sp, cy * cp), rt = normalize(cross(fw, vec3(0., 1., 0.))), up = cross(rt, fw);
+      vec3 rd = normalize(fw * 1.1 + uv.x * rt + uv.y * up);
+      vec3 col;
+      float az = atan(rd.x, rd.z);
+      float ridge = .03 + .07 * fbm(vec2(az * 2.2, 1.)) + .04 * fbm(vec2(az * 9., 4.));   // 远山轮廓
+      if (rd.y > ridge) col = sky(rd);
+      else if (rd.y > 0.) col = vec3(.004, .01, .016) + aurora(vec3(rd.x, .3, rd.z)) * .03;
+      else {
+        // 湖面：天空倒影 + 轻微波纹扰动
+        vec2 wp = rd.xz / max(-rd.y, .01);
+        vec2 rip = vec2(n2(wp * 1.5 + uTime * .3), n2(wp * 1.5 - uTime * .25)) - .5;
+        vec3 rr = normalize(vec3(rd.x + rip.x * .015, -rd.y, rd.z + rip.y * .015));
+        float mr = .03 + .07 * fbm(vec2(atan(rr.x, rr.z) * 2.2, 1.)) + .04 * fbm(vec2(atan(rr.x, rr.z) * 9., 4.));
+        col = (rr.y > mr ? sky(rr) : vec3(.004, .01, .016)) * .55 + vec3(.0, .01, .02);
+      }
+      col = 1. - exp(-col * 1.6);
+      gl_FragColor = vec4(pow(col, vec3(.95)), 1.);
+    }`,
+})));
+function resize() { renderer.setSize(innerWidth, innerHeight); renderer.getDrawingBufferSize(u.uRes.value); }
+addEventListener('resize', resize); resize();
+window.NEBULA?.adaptive(r => { renderer.setPixelRatio(r); renderer.getDrawingBufferSize(u.uRes.value); }, { max: Math.min(devicePixelRatio, 1.5), min: .6 });
+
+// ---------- 交互 ----------
+const $ = id => document.getElementById(id);
+let yaw = 0, yawT = 0, drag = null, auto = true, ci = 0, storm = false, meteors = true, meteorT = -1;
+renderer.domElement.addEventListener('pointerdown', e => { drag = e.clientX; auto = false; });
+addEventListener('pointermove', e => { if (drag !== null) { yawT -= (e.clientX - drag) * .003; drag = e.clientX; } });
+addEventListener('pointerup', () => { drag = null; setTimeout(() => auto = true, 3000); });
+document.querySelectorAll('[data-c]').forEach(b => b.onclick = () => { ci = +b.dataset.c; document.querySelectorAll('[data-c]').forEach(x => x.classList.toggle('on', x === b)); });
+$('storm').onclick = () => { storm = !storm; $('storm').classList.toggle('on', storm); };
+$('meteor').onclick = () => { meteors = !meteors; $('meteor').classList.toggle('on', meteors); };
+const c1 = new THREE.Vector3(), c2 = new THREE.Vector3();
+
+let last = performance.now(), time = 0;
+requestAnimationFrame(function loop(now) {
+  const dt = Math.min((now - last) / 1000, .1); last = now;
+  time += dt * (storm ? 3 : 1);
+  if (auto) yawT += dt * .02;
+  yaw += (yawT - yaw) * Math.min(dt * 4, 1);
+  u.uTime.value = time; u.uYaw.value = yaw;
+  u.uPower.value += ((storm ? 1.8 : 1) - u.uPower.value) * dt * 2;
+  u.uC1.value.lerp(c1.set(...COLS[ci][0]), dt * 2); u.uC2.value.lerp(c2.set(...COLS[ci][1]), dt * 2);
+  // 每隔几秒随机划过一颗流星
+  if (meteors && meteorT < 0 && Math.random() < dt * .25) { meteorT = 0; u.uMeteor.value.set((Math.random() - .3) * 1.2, .45 + Math.random() * .4, 0, 0); }
+  if (meteorT >= 0) { meteorT += dt * 1.6; u.uMeteor.value.w = Math.min(meteorT, 1); if (meteorT > 1.4) { meteorT = -1; u.uMeteor.value.w = -1; } }
+  renderer.render(scene, cam);
+  requestAnimationFrame(loop);
+});
+</script>
+<script src="shared.js?v=20261022"></script>
+</body>
+</html>

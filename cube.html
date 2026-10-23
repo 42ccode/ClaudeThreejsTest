@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>霓虹魔方 · Cube</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; background: #05060c; color: #eef1ff; font-family: "Inter", "PingFang SC", system-ui, sans-serif; user-select: none; -webkit-user-select: none; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  .mono { font-family: "SF Mono", ui-monospace, Menlo, monospace; }
+  .head { position: fixed; top: 28px; left: 5vw; z-index: 2; pointer-events: none; }
+  .head .tag { font-size: 11px; letter-spacing: .4em; color: #ffd84d; }
+  .head h1 { font-size: clamp(44px, 7vw, 100px); font-weight: 900; letter-spacing: -.02em; margin-top: 8px; line-height: 1; }
+  .head p { margin-top: 10px; font-size: 12px; letter-spacing: .25em; color: #8b90b8; }
+  .stats { position: fixed; right: 5vw; top: 50%; transform: translateY(-50%); z-index: 2; display: grid; gap: 22px; text-align: right; pointer-events: none; }
+  .stats small { display: block; font-size: 10px; letter-spacing: .3em; color: #8b90b8; }
+  .stats b { font-size: 34px; font-weight: 300; }
+  #state { font-size: 15px; font-weight: 600; letter-spacing: .1em; }
+  .keys { position: fixed; left: 5vw; bottom: 40px; z-index: 2; font-size: 11px; letter-spacing: .2em; color: #8b90b8; line-height: 1.9; pointer-events: none; }
+  .keys b { color: #fff; font-weight: 600; }
+  .ctrl { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 5; display: flex; gap: 6px; padding: 8px; border-radius: 999px; border: 1px solid #ffffff22; background: #0a0b14e6; }
+  .ctrl button { border: 1px solid transparent; background: none; color: #c9cde8; padding: 9px 16px; border-radius: 999px; font-size: 13px; letter-spacing: .08em; transition: .3s; white-space: nowrap; }
+  .ctrl button:hover { border-color: #ffffff44; }
+  .ctrl button.main { background: linear-gradient(90deg, #ffd84d, #ff6a3d); color: #120a04; font-weight: 700; }
+  .ctrl button:disabled { opacity: .35; pointer-events: none; }
+  #toast { position: fixed; left: 50%; top: 22%; transform: translate(-50%, -20px); z-index: 6; padding: 18px 30px; border-radius: 18px; background: linear-gradient(135deg, #ffd84dee, #ff6a3dee); color: #120a04; text-align: center; opacity: 0; transition: opacity .5s, transform .6s cubic-bezier(.2, 1.4, .4, 1); pointer-events: none; box-shadow: 0 20px 60px -10px #ff6a3d88; }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+  #toast b { display: block; font-size: 26px; font-weight: 900; }
+  #toast span { font-size: 13px; letter-spacing: .1em; }
+  @media (max-width: 760px) {
+    .head { left: 16px; } .keys { display: none; }
+    .stats { top: 120px; transform: none; right: 16px; gap: 8px; } .stats b { font-size: 20px; }
+    .ctrl { bottom: 84px; } .ctrl button { padding: 8px 12px; font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+<div class="head">
+  <div class="tag mono">CUBE / 13 · 3×3×3</div>
+  <h1>霓虹魔方</h1>
+  <p>拖动色块转动一层 · 拖动空白处旋转视角</p>
+</div>
+<div class="stats mono">
+  <div><small>状态 STATE</small><span id="state">已还原</span></div>
+  <div><small>步数 MOVES</small><b id="moves">0</b></div>
+  <div><small>计时 TIME</small><b id="time">00:00.00</b></div>
+</div>
+<div class="keys mono">键盘：<b>U D L R F B</b> 转动对应面<br>按住 <b>Shift</b> 反向</div>
+<div id="toast"><b>还原成功！</b><span id="toastInfo"></span></div>
+<div class="ctrl">
+  <button class="main" id="scramble">打乱</button>
+  <button id="solve">自动还原</button>
+  <button id="view">重置视角</button>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+document.body.prepend(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x05060c);
+scene.environment = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), .04).texture;
+const camera = new THREE.PerspectiveCamera(36, innerWidth / innerHeight, .1, 100);
+const HOME = new THREE.Vector3(7, 5.6, 8.4);
+const fitCam = () => camera.position.copy(HOME).multiplyScalar(camera.aspect < 1 ? 1.5 : 1);
+fitCam();
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; controls.enablePan = false;
+controls.minDistance = 7; controls.maxDistance = 20;
+controls.autoRotate = true; controls.autoRotateSpeed = 1.2;
+
+// 地面光环
+const ring = new THREE.Mesh(new THREE.RingGeometry(2.9, 2.95, 128), new THREE.MeshBasicMaterial({ color: 0xffd84d, transparent: true, opacity: .5, side: THREE.DoubleSide }));
+ring.rotation.x = -Math.PI / 2; ring.position.y = -2.3;
+const ring2 = ring.clone(); ring2.material = ring.material.clone(); ring2.material.color.set(0xff3dbb); ring2.scale.setScalar(1.25); ring2.material.opacity = .25;
+scene.add(ring, ring2);
+
+// ---------- 魔方 ----------
+const S = 1.02;                                   // 小块间距
+const COLORS = { px: 0xff2d55, nx: 0xff8a1f, py: 0xffffff, ny: 0xffd60a, pz: 0x2bff88, nz: 0x2d8cff };
+const root = new THREE.Group(); scene.add(root);
+const bodyGeo = new RoundedBoxGeometry(.96, .96, .96, 4, .12);
+const bodyMat = new THREE.MeshStandardMaterial({ color: 0x0c0c12, roughness: .35, metalness: .2 });
+const shape = new THREE.Shape(); { const s = .39, r = .1;
+  shape.moveTo(-s + r, -s); shape.lineTo(s - r, -s); shape.quadraticCurveTo(s, -s, s, -s + r); shape.lineTo(s, s - r); shape.quadraticCurveTo(s, s, s - r, s);
+  shape.lineTo(-s + r, s); shape.quadraticCurveTo(-s, s, -s, s - r); shape.lineTo(-s, -s + r); shape.quadraticCurveTo(-s, -s, -s + r, -s); }
+const stickerGeo = new THREE.ShapeGeometry(shape, 6);
+const stickerMats = {};
+COLORS.py = 0xe8ecf4;   // 白色略降亮度，避免泛光过曝
+for (const k in COLORS) stickerMats[k] = new THREE.MeshPhysicalMaterial({ color: COLORS[k], emissive: COLORS[k], emissiveIntensity: k === 'py' ? .04 : .2, roughness: .2, clearcoat: 1, clearcoatRoughness: .1 });
+const FACES = [['px', [1, 0, 0]], ['nx', [-1, 0, 0]], ['py', [0, 1, 0]], ['ny', [0, -1, 0]], ['pz', [0, 0, 1]], ['nz', [0, 0, -1]]];
+const cubies = [], stickers = [];
+for (let x = -1; x <= 1; x++) for (let y = -1; y <= 1; y++) for (let z = -1; z <= 1; z++) {
+  const c = new THREE.Mesh(bodyGeo, bodyMat);
+  c.position.set(x * S, y * S, z * S);
+  const p = [x, y, z];
+  FACES.forEach(([key, n]) => {
+    const axis = n.findIndex(v => v !== 0);
+    if (p[axis] !== n[axis]) return;
+    const st = new THREE.Mesh(stickerGeo, stickerMats[key]);
+    const nv = new THREE.Vector3(...n);
+    st.position.copy(nv).multiplyScalar(.485);
+    st.lookAt(nv.clone().multiplyScalar(2));
+    st.userData = { n: nv, color: key };
+    c.add(st); stickers.push(st);
+  });
+  root.add(c); cubies.push(c);
+}
+
+// ---------- 转动 ----------
+const queue = [], history = [];
+let anim = null, moves = 0, timing = false, t0 = 0, mode = 'solved';   // solved | scrambling | scrambled | solving
+const ease = t => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+const AX = ['x', 'y', 'z'];
+function enqueue(axis, layer, dir, dur = .26, kind = 'user') { queue.push({ axis, layer, dir, dur, kind }); }
+function startNext() {
+  const m = queue.shift();
+  const pivot = new THREE.Group(); root.add(pivot);
+  cubies.filter(c => Math.round(c.position[m.axis] / S) === m.layer).forEach(c => pivot.attach(c));
+  anim = { ...m, pivot, t: 0 };
+  sfx(m.kind === 'user' ? 520 : 760, m.kind === 'user' ? .05 : .02);
+}
+const mtx = new THREE.Matrix4();
+function finish() {
+  const { pivot } = anim;
+  pivot.updateMatrixWorld();
+  [...pivot.children].forEach(c => {
+    root.attach(c);
+    c.position.set(Math.round(c.position.x / S) * S, Math.round(c.position.y / S) * S, Math.round(c.position.z / S) * S);
+    // 旋转矩阵各元素吸附到 -1 / 0 / 1，消除浮点误差累积
+    mtx.makeRotationFromQuaternion(c.quaternion);
+    mtx.elements = mtx.elements.map(v => Math.round(v));
+    c.quaternion.setFromRotationMatrix(mtx);
+  });
+  root.remove(pivot);
+  const m = anim; anim = null;
+  if (m.kind !== 'solve') history.push(m);
+  if (m.kind === 'user') { moves++; if (mode === 'scrambled' && !timing) { timing = true; t0 = performance.now(); } }
+  if (!queue.length) settle(m.kind);
+}
+const nv = new THREE.Vector3();
+function isSolved() {
+  const seen = {};
+  for (const st of stickers) {
+    nv.copy(st.userData.n).applyQuaternion(st.parent.quaternion);
+    const key = `${Math.round(nv.x)},${Math.round(nv.y)},${Math.round(nv.z)}`;
+    if ((seen[key] ??= st.userData.color) !== st.userData.color) return false;
+  }
+  return true;
+}
+function settle(kind) {
+  if (kind === 'scramble') { mode = 'scrambled'; moves = 0; timing = false; ui(); return; }
+  if (isSolved()) {
+    const userSolved = mode === 'scrambled' && kind === 'user';
+    mode = 'solved'; history.length = 0;
+    if (userSolved) { timing = false; celebrate(`用时 ${fmt(performance.now() - t0)} · ${moves} 步`); }
+    else if (kind === 'solve') celebrate('自动还原完成');
+  } else if (mode === 'solved') mode = 'scrambled';   // 从还原状态手动转乱，也算开始一局
+  ui();
+}
+
+function scramble() {
+  if (anim || queue.length) return;
+  mode = 'scrambling'; controls.autoRotate = true;
+  let last = -1;
+  for (let i = 0; i < 24; i++) {
+    let a; do a = Math.floor(Math.random() * 3); while (a === last);
+    last = a;
+    enqueue(AX[a], Math.floor(Math.random() * 3) - 1, Math.random() < .5 ? 1 : -1, .11, 'scramble');
+  }
+  ui();
+}
+function solve() {
+  if (anim || queue.length || !history.length) return;
+  mode = 'solving'; timing = false;
+  [...history].reverse().forEach(m => enqueue(m.axis, m.layer, -m.dir, .16, 'solve'));
+  history.length = 0;
+  ui();
+}
+
+// ---------- 拖动转层 ----------
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+let drag = null;
+const toNdc = e => ndc.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+renderer.domElement.addEventListener('pointerdown', e => {
+  controls.autoRotate = false;
+  if (anim || queue.length || mode === 'scrambling' || mode === 'solving') return;
+  ray.setFromCamera(toNdc(e), camera);
+  const hit = ray.intersectObjects(cubies, true)[0];
+  if (!hit) return;
+  controls.enabled = false;
+  let c = hit.object; while (c.parent !== root) c = c.parent;
+  const n = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
+  const ai = [Math.abs(n.x), Math.abs(n.y), Math.abs(n.z)].indexOf(Math.max(Math.abs(n.x), Math.abs(n.y), Math.abs(n.z)));
+  const normal = new THREE.Vector3(); normal.setComponent(ai, Math.sign(n.getComponent(ai)));
+  drag = { x: e.clientX, y: e.clientY, point: hit.point.clone(), normal, cubie: c };
+});
+addEventListener('pointermove', e => {
+  if (!drag) return;
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+  if (Math.hypot(dx, dy) < 14) return;
+  // 在面内的两条轴里，挑屏幕投影方向与拖动方向最一致的那条
+  const p0 = drag.point.clone().project(camera);
+  let best = null;
+  AX.forEach((a, i) => {
+    if (drag.normal.getComponent(i) !== 0) return;
+    const d3 = new THREE.Vector3(); d3.setComponent(i, 1);
+    const p1 = drag.point.clone().add(d3.clone().multiplyScalar(.6)).project(camera);
+    const sx = (p1.x - p0.x) * innerWidth, sy = -(p1.y - p0.y) * innerHeight, len = Math.hypot(sx, sy) || 1;
+    const dot = (sx * dx + sy * dy) / (len * Math.hypot(dx, dy));
+    if (!best || Math.abs(dot) > Math.abs(best.dot)) best = { d3, dot };
+  });
+  const dragDir = best.d3.multiplyScalar(Math.sign(best.dot));
+  const axisVec = new THREE.Vector3().crossVectors(drag.normal, dragDir);   // 绕此轴转动会让表面沿拖动方向移动
+  const ai = [0, 1, 2].find(i => Math.abs(axisVec.getComponent(i)) > .5);
+  enqueue(AX[ai], Math.round(drag.cubie.position.getComponent(ai) / S), Math.sign(axisVec.getComponent(ai)));
+  drag = null;
+});
+addEventListener('pointerup', () => { drag = null; controls.enabled = true; });
+
+// 键盘：标准魔方记号（顺时针 = 从该面外侧看过去顺时针）
+const KEYMAP = { u: ['y', 1, -1], d: ['y', -1, 1], r: ['x', 1, -1], l: ['x', -1, 1], f: ['z', 1, -1], b: ['z', -1, 1] };
+addEventListener('keydown', e => {
+  const k = KEYMAP[e.key.toLowerCase()];
+  if (!k || mode === 'scrambling' || mode === 'solving' || queue.length > 3) return;
+  enqueue(k[0], k[1], e.shiftKey ? -k[2] : k[2]);
+});
+
+// ---------- 庆祝：彩色碎屑 ----------
+const CN = 600;
+const cPos = new Float32Array(CN * 3), cVel = new Float32Array(CN * 3), cCol = new Float32Array(CN * 3);
+const confetti = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(cPos, 3)).setAttribute('color', new THREE.BufferAttribute(cCol, 3)),
+  new THREE.PointsMaterial({ size: .09, vertexColors: true, transparent: true, depthWrite: false }));
+confetti.visible = false; confetti.frustumCulled = false; scene.add(confetti);
+let confettiT = 0;
+function celebrate(info) {
+  const pal = Object.values(COLORS).map(c => new THREE.Color(c));
+  for (let i = 0; i < CN; i++) {
+    const v = new THREE.Vector3().randomDirection();
+    cPos.set([0, 0, 0], i * 3);
+    cVel.set([v.x * (3 + Math.random() * 5), Math.abs(v.y) * 7 + 2, v.z * (3 + Math.random() * 5)], i * 3);
+    const c = pal[i % pal.length]; cCol.set([c.r, c.g, c.b], i * 3);
+  }
+  confetti.geometry.attributes.color.needsUpdate = true;
+  confetti.visible = true; confettiT = 0; confetti.material.opacity = 1;
+  document.getElementById('toastInfo').textContent = info;
+  document.getElementById('toast').classList.add('show');
+  setTimeout(() => document.getElementById('toast').classList.remove('show'), 3500);
+  [660, 880, 1320].forEach((f, i) => setTimeout(() => sfx(f, .08), i * 110));
+  controls.autoRotate = true;
+}
+
+// ---------- 音效（随 BGM 开关） ----------
+let actx;
+function sfx(freq, vol) {
+  if (!window.BGM?.playing) return;
+  actx ??= new AudioContext();
+  const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain();
+  o.type = 'triangle'; o.frequency.value = freq;
+  g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.0001, t + .12);
+  o.connect(g).connect(actx.destination); o.start(t); o.stop(t + .14);
+}
+
+// ---------- 界面 ----------
+const $ = id => document.getElementById(id);
+const fmt = ms => { const s = ms / 1000; return `${String(Math.floor(s / 60)).padStart(2, '0')}:${(s % 60).toFixed(2).padStart(5, '0')}`; };
+const STATE = { solved: ['已还原', '#8dffb0'], scrambling: ['打乱中…', '#ffd84d'], scrambled: ['已打乱', '#ff6a3d'], solving: ['自动还原中…', '#5ff8ff'] };
+function ui() {
+  $('state').textContent = STATE[mode][0]; $('state').style.color = STATE[mode][1];
+  $('moves').textContent = moves;
+  const busy = mode === 'scrambling' || mode === 'solving';
+  $('scramble').disabled = busy; $('solve').disabled = busy || !history.length;
+}
+$('scramble').onclick = scramble;
+$('solve').onclick = solve;
+$('view').onclick = () => { fitCam(); controls.target.set(0, 0, 0); };
+ui();
+
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+composer.addPass(new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), .35, .4, .85));
+composer.addPass(new OutputPass());
+window.NEBULA?.adaptive(r => { renderer.setPixelRatio(r); composer.setPixelRatio(r); });
+
+const clock = new THREE.Clock();
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), .05), t = clock.elapsedTime;
+  if (!anim && queue.length) startNext();
+  if (anim) {
+    anim.t = Math.min(anim.t + dt / anim.dur, 1);
+    anim.pivot.rotation[anim.axis] = ease(anim.t) * anim.dir * Math.PI / 2;
+    if (anim.t >= 1) finish();
+  }
+  if (timing) $('time').textContent = fmt(performance.now() - t0);
+  if (confetti.visible) {
+    confettiT += dt;
+    for (let i = 0; i < CN; i++) {
+      cVel[i * 3 + 1] -= 9 * dt;
+      for (let k = 0; k < 3; k++) { cVel[i * 3 + k] *= .985; cPos[i * 3 + k] += cVel[i * 3 + k] * dt; }
+    }
+    confetti.geometry.attributes.position.needsUpdate = true;
+    confetti.material.opacity = Math.max(0, 1 - confettiT / 3);
+    if (confettiT > 3) confetti.visible = false;
+  }
+  ring.scale.setScalar(1 + Math.sin(t * 1.5) * .02);
+  ring2.rotation.z = t * .1;
+  controls.update();
+  composer.render();
+});
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight);
+});
+</script>
+<script src="shared.js?v=20261022"></script>
+</body>
+</html>

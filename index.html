@@ -51,7 +51,7 @@
 
   /* 3D 倾斜卡片 */
   .cards { display: flex; gap: 24px; margin-top: 48px; flex-wrap: wrap; pointer-events: auto; perspective: 900px; }
-  .card { width: 240px; padding: 28px; border-radius: 20px; background: linear-gradient(145deg, #ffffff12, #ffffff04); border: 1px solid #ffffff22; backdrop-filter: blur(12px); transform-style: preserve-3d; transition: transform .15s ease-out, box-shadow .3s; position: relative; overflow: hidden; }
+  .card { width: 240px; padding: 28px; border-radius: 20px; background: linear-gradient(145deg, #16142acc, #0b0a16b8); border: 1px solid #ffffff22; transform-style: preserve-3d; transition: transform .15s ease-out, box-shadow .3s; position: relative; overflow: hidden; }
   .card::before { content: ""; position: absolute; inset: 0; background: radial-gradient(300px circle at var(--mx,50%) var(--my,50%), #7cf7ff33, transparent 40%); opacity: 0; transition: opacity .3s; }
   .card:hover::before { opacity: 1; }
   .card:hover { box-shadow: 0 30px 60px -20px #ff5fd255; }
@@ -149,6 +149,7 @@ composer.addPass(new RenderPass(scene, camera));
 const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 1.1, 0.6, 0.0);
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
+window.NEBULA?.adaptive(r => { renderer.setPixelRatio(r); composer.setPixelRatio(r); });
 
 // ---------- 形态生成 ----------
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -327,7 +328,7 @@ addEventListener('click', e => {
 // ---------- 滚动 ----------
 let scrollY = 0, scrollSmooth = 0;
 addEventListener('scroll', () => { scrollY = window.scrollY; document.getElementById('hint').style.opacity = scrollY > 50 ? 0 : 1; });
-const sections = [...document.querySelectorAll('section')];
+const sections = [...document.querySelectorAll('main section')];
 const dots = document.getElementById('dots');
 sections.forEach(() => dots.appendChild(document.createElement('span')));
 [...dots.children].forEach((d, i) => d.style.pointerEvents = 'auto');

@@ -14,7 +14,7 @@
   .head h1 { font-size: clamp(44px, 7vw, 100px); font-weight: 900; letter-spacing: -.02em; margin-top: 8px; line-height: 1; }
   .head p { margin-top: 10px; font-size: 12px; letter-spacing: .25em; opacity: .7; }
   .hint { position: fixed; left: 5vw; bottom: 40px; z-index: 2; font-size: 11px; letter-spacing: .3em; opacity: .6; pointer-events: none; }
-  .ctrl { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 5; display: flex; align-items: center; gap: 6px; padding: 8px; border-radius: 999px; border: 1px solid #ffffff22; background: #0a0a12c0; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+  .ctrl { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 5; display: flex; align-items: center; gap: 6px; padding: 8px; border-radius: 999px; border: 1px solid #ffffff22; background: #0a0a12c0; }
   .ctrl button { border: 1px solid transparent; background: none; color: #d0d4e8; padding: 9px 14px; border-radius: 999px; font-size: 13px; letter-spacing: .08em; transition: .3s; white-space: nowrap; }
   .ctrl button:hover { border-color: #ffffff44; }
   .ctrl button.on { background: #fff; color: #000; font-weight: 700; }
@@ -215,6 +215,7 @@ const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(displayScene, cam));
 composer.addPass(new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), .7, .5, .2));
 composer.addPass(new OutputPass());
+window.NEBULA?.adaptive(r => { renderer.setPixelRatio(r); composer.setPixelRatio(r); });
 
 // ---------- 求解循环 ----------
 function step(dt) {

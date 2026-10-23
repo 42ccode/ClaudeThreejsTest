@@ -127,6 +127,7 @@ const fx = new ShaderPass({
 });
 composer.addPass(fx);
 composer.addPass(new OutputPass());
+window.NEBULA?.adaptive(r => { renderer.setPixelRatio(r); composer.setPixelRatio(r); });
 
 // 交互
 let warp = false, speed = 28, dist = 0, flashed = false;

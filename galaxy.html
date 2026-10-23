@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>星系碰撞 · Galaxy Merger</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; background: #000; color: #eef1ff; font-family: "Inter", "PingFang SC", system-ui, sans-serif; user-select: none; -webkit-user-select: none; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  .mono { font-family: "SF Mono", ui-monospace, Menlo, monospace; }
+  .head { position: fixed; top: 28px; left: 5vw; z-index: 2; pointer-events: none; }
+  .head .tag { font-size: 11px; letter-spacing: .4em; color: #9fb4ff; }
+  .head h1 { font-size: clamp(44px, 7vw, 100px); font-weight: 200; letter-spacing: .12em; margin-top: 8px; line-height: 1; }
+  .head p { margin-top: 10px; font-size: 12px; letter-spacing: .25em; color: #8b90b8; }
+  .data { position: fixed; right: 5vw; top: 50%; transform: translateY(-50%); z-index: 2; display: grid; gap: 18px; text-align: right; pointer-events: none; }
+  .data small { display: block; font-size: 10px; letter-spacing: .3em; color: #8b90b8; }
+  .data b { font-size: 22px; font-weight: 300; }
+  .ctrl { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 5; display: flex; align-items: center; gap: 6px; padding: 8px; border-radius: 999px; border: 1px solid #ffffff22; background: #06060ee6; }
+  .ctrl button { border: 1px solid transparent; background: none; color: #c9cde8; padding: 9px 14px; border-radius: 999px; font-size: 13px; letter-spacing: .08em; transition: .3s; white-space: nowrap; }
+  .ctrl button:hover { border-color: #ffffff44; }
+  .ctrl button.on { background: linear-gradient(90deg, #9fb4ff, #ffcf8a); color: #05050a; font-weight: 700; }
+  .ctrl .sep { width: 1px; align-self: stretch; background: #ffffff22; margin: 4px; }
+  .hint { position: fixed; left: 5vw; bottom: 40px; z-index: 2; font-size: 11px; letter-spacing: .3em; color: #8b90b8; pointer-events: none; }
+  @media (max-width: 760px) {
+    .head { left: 16px; } .data, .hint { display: none; }
+    .ctrl { bottom: 84px; flex-wrap: wrap; justify-content: center; border-radius: 22px; width: calc(100% - 32px); } .ctrl .sep { display: none; }
+    .ctrl button { padding: 8px 10px; font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+<div class="head">
+  <div class="tag mono">GALAXY MERGER / PARTICLES · GRAVITY</div>
+  <h1>星系碰撞</h1>
+  <p>两个旋涡星系擦肩而过 · 引力撕扯出长长的潮汐尾</p>
+</div>
+<div class="data mono">
+  <div><small>恒星 STARS</small><b id="n">0</b></div>
+  <div><small>经过 ELAPSED</small><b id="age">0 亿年</b></div>
+  <div><small>核心距离 SEPARATION</small><b id="sep">0 kpc</b></div>
+</div>
+<div class="hint mono">拖动环绕 · 滚轮缩放</div>
+<div class="ctrl">
+  <button data-k="graze" class="on">擦肩而过</button>
+  <button data-k="headon">正面对撞</button>
+  <button data-k="single">单个星系</button>
+  <span class="sep"></span>
+  <button id="speed">时间加速</button>
+  <button id="replay">重新开始</button>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+const PER = innerWidth < 760 ? 6000 : 13000, N = PER * 2, G = 1, M = [300, 240], SOFT = .6;
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+document.body.prepend(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, .1, 2000);
+camera.position.set(0, 70, camera.aspect < 1 ? 160 : 110);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; controls.enablePan = false; controls.autoRotate = true; controls.autoRotateSpeed = .25;
+
+// 背景星空
+scene.add(new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(4000 * 3).map(() => (Math.random() - .5) * 1600), 3)),
+  new THREE.PointsMaterial({ size: 1.2, color: 0x8899cc, sizeAttenuation: false, transparent: true, opacity: .5 })));
+
+// ---------- 恒星 ----------
+const P = new Float32Array(N * 3), V = new Float32Array(N * 3), C = new Float32Array(N * 3);
+const geo = new THREE.BufferGeometry();
+geo.setAttribute('position', new THREE.BufferAttribute(P, 3));
+geo.setAttribute('color', new THREE.BufferAttribute(C, 3));
+const dot = (() => { const c = document.createElement('canvas'); c.width = c.height = 32; const g = c.getContext('2d'); const gr = g.createRadialGradient(16, 16, 0, 16, 16, 16); gr.addColorStop(0, '#fff'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 32, 32); return new THREE.CanvasTexture(c); })();
+const stars = new THREE.Points(geo, new THREE.PointsMaterial({ size: .9, map: dot, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+stars.frustumCulled = false; scene.add(stars);
+const cores = [0, 1].map(i => { const m = new THREE.Mesh(new THREE.SphereGeometry(1.2, 16, 16), new THREE.MeshBasicMaterial({ color: i ? 0xffc890 : 0xfff0d0 })); scene.add(m); return m; });
+const CP = [new THREE.Vector3(), new THREE.Vector3()], CV = [new THREE.Vector3(), new THREE.Vector3()];
+const col = new THREE.Color();
+
+// 在给定核心周围生成一个带旋臂的盘面，速度取圆轨道速度
+function disk(offset, center, vel, mass, tiltX, tiltZ, hueCore, hueArm, spin) {
+  const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(tiltX, 0, tiltZ));
+  const p = new THREE.Vector3(), v = new THREE.Vector3();
+  for (let i = 0; i < PER; i++) {
+    const arm = i % 2, rr = 2.5 + Math.pow(Math.random(), 1.5) * 32;
+    const a = arm * Math.PI + rr * .28 + (Math.random() - .5) * (.5 + 8 / rr);
+    p.set(Math.cos(a) * rr, (Math.random() - .5) * (1.5 + 12 / rr) * .3, Math.sin(a) * rr);
+    const sp = Math.sqrt(G * mass / Math.sqrt(rr * rr + SOFT * SOFT)) * spin;
+    v.set(-Math.sin(a) * sp, 0, Math.cos(a) * sp);
+    p.applyQuaternion(q); v.applyQuaternion(q);
+    const k = (offset + i) * 3;
+    P[k] = center.x + p.x; P[k + 1] = center.y + p.y; P[k + 2] = center.z + p.z;
+    V[k] = vel.x + v.x; V[k + 1] = vel.y + v.y; V[k + 2] = vel.z + v.z;
+    const t = Math.min(rr / 30, 1);
+    col.setHSL(THREE.MathUtils.lerp(hueCore, hueArm, t), .7, THREE.MathUtils.lerp(.75, .55, t) * (.6 + Math.random() * .4));
+    C[k] = col.r; C[k + 1] = col.g; C[k + 2] = col.b;
+  }
+}
+let scenario = 'graze', simT = 0, speed = 1;
+function setup() {
+  simT = 0;
+  if (scenario === 'single') {
+    CP[0].set(0, 0, 0); CV[0].set(0, 0, 0); CP[1].set(9999, 0, 0); CV[1].set(0, 0, 0);
+    disk(0, CP[0], CV[0], M[0], .3, 0, .1, .62, 1); disk(PER, CP[0], CV[0], M[0], .3, 0, .1, .62, 1);
+  } else {
+    const head = scenario === 'headon';
+    CP[0].set(-55, 0, head ? -4 : -14); CV[0].set(2.2, 0, head ? .3 : 1.3);
+    CP[1].set(55, head ? 3 : 8, head ? 4 : 14); CV[1].set(-2.6, 0, head ? -.3 : -1.6);
+    disk(0, CP[0], CV[0], M[0], .25, .1, .1, .62, 1);
+    disk(PER, CP[1], CV[1], M[1], -.9, .5, .02, .78, -1);
+  }
+  cores[1].visible = scenario !== 'single';
+  document.getElementById('n').textContent = (scenario === 'single' ? N : N).toLocaleString();
+}
+
+// 恒星只受两个核心（暗物质晕）的引力，核心之间互相吸引
+const acc = (x, y, z, ax) => {
+  let fx = 0, fy = 0, fz = 0;
+  for (let c = 0; c < 2; c++) {
+    if (c === 1 && scenario === 'single') break;
+    const dx = CP[c].x - x, dy = CP[c].y - y, dz = CP[c].z - z, r2 = dx * dx + dy * dy + dz * dz + SOFT * SOFT, f = G * M[c] / (r2 * Math.sqrt(r2));
+    fx += dx * f; fy += dy * f; fz += dz * f;
+  }
+  ax[0] = fx; ax[1] = fy; ax[2] = fz;
+};
+const ax = [0, 0, 0];
+function step(dt) {
+  if (scenario !== 'single') {
+    const d = new THREE.Vector3().subVectors(CP[1], CP[0]), r2 = d.lengthSq() + 4, f = G / (r2 * Math.sqrt(r2));
+    CV[0].addScaledVector(d, f * M[1] * dt); CV[1].addScaledVector(d, -f * M[0] * dt);
+    CP[0].addScaledVector(CV[0], dt); CP[1].addScaledVector(CV[1], dt);
+  }
+  for (let i = 0; i < N; i++) {
+    const k = i * 3;
+    acc(P[k], P[k + 1], P[k + 2], ax);
+    V[k] += ax[0] * dt; V[k + 1] += ax[1] * dt; V[k + 2] += ax[2] * dt;
+    P[k] += V[k] * dt; P[k + 1] += V[k + 1] * dt; P[k + 2] += V[k + 2] * dt;
+  }
+  simT += dt;
+}
+
+const $ = id => document.getElementById(id);
+document.querySelectorAll('[data-k]').forEach(b => b.onclick = () => { scenario = b.dataset.k; document.querySelectorAll('[data-k]').forEach(x => x.classList.toggle('on', x === b)); setup(); });
+$('speed').onclick = () => { speed = speed === 1 ? 3 : 1; $('speed').classList.toggle('on', speed !== 1); };
+$('replay').onclick = setup;
+
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+composer.addPass(new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), .8, .5, .2));
+composer.addPass(new OutputPass());
+window.NEBULA?.adaptive(r => { renderer.setPixelRatio(r); composer.setPixelRatio(r); });
+
+setup();
+const clock = new THREE.Clock();
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 1 / 30);
+  const sub = speed === 1 ? 2 : 5;
+  for (let s = 0; s < sub; s++) step(dt * 1.2 / 2);   // 固定小步长积分，保持轨道稳定
+  geo.attributes.position.needsUpdate = true;
+  cores.forEach((m, i) => m.position.copy(CP[i]));
+  // 镜头目标缓慢跟随两核心的质心
+  const cm = scenario === 'single' ? CP[0] : new THREE.Vector3().addScaledVector(CP[0], M[0]).addScaledVector(CP[1], M[1]).divideScalar(M[0] + M[1]);
+  controls.target.lerp(cm, .02);
+  $('age').textContent = (simT * .12).toFixed(1) + ' 亿年';
+  $('sep').textContent = scenario === 'single' ? '—' : Math.round(CP[0].distanceTo(CP[1]) * .8) + ' kpc';
+  controls.update();
+  composer.render();
+});
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight);
+});
+</script>
+<script src="shared.js?v=20261022"></script>
+</body>
+</html>

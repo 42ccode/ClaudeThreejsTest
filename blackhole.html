@@ -16,7 +16,7 @@
   .data { position: fixed; right: 5vw; top: 50%; transform: translateY(-50%); z-index: 2; display: grid; gap: 18px; text-align: right; pointer-events: none; }
   .data small { display: block; font-size: 10px; letter-spacing: .3em; color: #8d8577; }
   .data b { font-size: 22px; font-weight: 300; }
-  .ctrl { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 5; display: flex; gap: 8px; padding: 8px; border-radius: 999px; border: 1px solid #ffffff22; background: #0c0a08c0; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+  .ctrl { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 5; display: flex; gap: 8px; padding: 8px; border-radius: 999px; border: 1px solid #ffffff22; background: #0c0a08c0; }
   .ctrl button { border: 1px solid transparent; background: none; color: #d8cfbd; padding: 9px 16px; border-radius: 999px; font-size: 13px; letter-spacing: .1em; transition: .3s; white-space: nowrap; }
   .ctrl button:hover { border-color: #ffb36b88; }
   .ctrl button.on { background: linear-gradient(90deg, #ffb36b, #ff6a3d); color: #120a04; font-weight: 700; }
@@ -144,6 +144,8 @@ function resize() {
   program.uniforms.uRes.value = [gl.canvas.width, gl.canvas.height];
 }
 addEventListener('resize', resize); resize();
+// 光线追踪很重：上限按原来的设置，帧率不够时逐步降到 0.6
+window.NEBULA?.adaptive(r => { renderer.dpr = r; resize(); }, { max: renderer.dpr, min: .6 });
 
 // 镜头：拖拽环绕、滚轮缩放、预设视角平滑过渡
 const cam = { yaw: .3, pitch: .1, dist: 22 }, goal = { ...cam };

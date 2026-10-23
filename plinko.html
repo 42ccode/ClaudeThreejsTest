@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>高尔顿板 · Galton Board</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; background: #06070f; color: #eef1ff; font-family: "Inter", "PingFang SC", system-ui, sans-serif; user-select: none; -webkit-user-select: none; }
+  #c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  .mono { font-family: "SF Mono", ui-monospace, Menlo, monospace; }
+  .head { position: fixed; top: 28px; left: 5vw; z-index: 2; pointer-events: none; max-width: 30vw; }
+  .head .tag { font-size: 11px; letter-spacing: .4em; color: #ffd84d; }
+  .head h1 { font-size: clamp(40px, 6vw, 90px); font-weight: 900; letter-spacing: -.02em; margin-top: 8px; line-height: 1; }
+  .head p { margin-top: 10px; font-size: 12px; letter-spacing: .15em; color: #8b90b8; line-height: 1.8; }
+  .stats { position: fixed; right: 5vw; top: 32px; z-index: 2; text-align: right; font-size: 11px; letter-spacing: .3em; color: #8b90b8; pointer-events: none; line-height: 2; }
+  .stats b { display: block; font-size: 36px; font-weight: 200; color: #fff; letter-spacing: 0; }
+  .ctrl { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 5; display: flex; align-items: center; gap: 6px; padding: 8px; border-radius: 999px; border: 1px solid #ffffff22; background: #0b0c18ee; }
+  .ctrl button { border: 1px solid transparent; background: none; color: #c9cde8; padding: 9px 14px; border-radius: 999px; font-size: 13px; letter-spacing: .08em; transition: .3s; white-space: nowrap; }
+  .ctrl button:hover { border-color: #ffffff44; }
+  .ctrl button.on { background: linear-gradient(90deg, #ffd84d, #ff7a3d); color: #0b0a04; font-weight: 700; }
+  .ctrl .sep { width: 1px; align-self: stretch; background: #ffffff22; margin: 4px; }
+  .ctrl label { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #c9cde8; padding: 0 6px; }
+  .ctrl input { width: 80px; accent-color: #ffd84d; }
+  @media (max-width: 860px) {
+    .head { left: 16px; max-width: none; } .head p { display: none; } .stats { top: 110px; right: 16px; }
+    .ctrl { bottom: 84px; flex-wrap: wrap; justify-content: center; border-radius: 22px; width: calc(100% - 32px); } .ctrl .sep { display: none; }
+    .ctrl button { padding: 8px 10px; font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="head">
+  <div class="tag mono">GALTON BOARD / PHYSICS · MATTER.JS</div>
+  <h1>高尔顿板</h1>
+  <p>每颗小球在每个钉子上随机向左或向右 · 千百次之后，落点会自己排成一条钟形曲线</p>
+</div>
+<div class="stats mono">已落下 DROPPED<b id="cnt">0</b>平均落点 <span id="mean">—</span></div>
+<div class="ctrl">
+  <button id="pour" class="on">持续倾倒</button>
+  <button id="drop100">投放 100 颗</button>
+  <button id="clear">清空</button>
+  <span class="sep"></span>
+  <label>偏向 <input type="range" id="bias" min="-1" max="1" step=".05" value="0"></label>
+  <button id="curve" class="on">理论曲线</button>
+</div>
+
+<script src="https://unpkg.com/matter-js@0.20.0/build/matter.min.js"></script>
+<script>
+(() => {
+  const { Engine, Bodies, Body, Composite, Events } = Matter;
+  const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+  const dpr = Math.min(devicePixelRatio, 2);
+  const engine = Engine.create({ gravity: { y: 1 } });
+  engine.positionIterations = 8;
+  let W, H, pegs = [], walls = [], bins = [], balls = [], counts = [], NB, layout;
+
+  function build() {
+    if (!innerWidth || !innerHeight) { requestAnimationFrame(build); return; }   // 窗口尚无尺寸时稍后再试
+    W = innerWidth; H = innerHeight;
+    cv.width = W * dpr; cv.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    Composite.clear(engine.world, false);
+    balls = []; pegs = []; walls = [];
+    // 钉阵居中，下方是收集槽
+    const rows = W < 760 ? 11 : 14, gap = Math.min((W * (W < 760 ? .9 : .5)) / (rows + 1), (H * .45) / rows);
+    const top = H * (W < 760 ? .25 : .16), cx = W / 2, pegR = Math.max(2.5, gap * .09);
+    for (let r = 0; r < rows; r++) for (let i = 0; i <= r + 2; i++) {
+      const x = cx + (i - (r + 2) / 2) * gap, y = top + r * gap * .87;
+      pegs.push(Bodies.circle(x, y, pegR, { isStatic: true, restitution: .4, friction: 0 }));
+    }
+    NB = rows + 3;
+    const binTop = top + rows * gap * .87 + gap * .3, floor = H - (W < 760 ? 160 : 100), left = cx - (NB / 2) * gap;
+    for (let i = 0; i <= NB; i++) walls.push(Bodies.rectangle(left + i * gap, (binTop + floor) / 2, 3, floor - binTop, { isStatic: true, friction: 0 }));
+    walls.push(Bodies.rectangle(cx, floor + 10, NB * gap + 40, 20, { isStatic: true }));
+    // 漏斗
+    walls.push(Bodies.rectangle(cx - gap * 1.4, top - gap * 1.4, gap * 2.4, 4, { isStatic: true, angle: .6 }));
+    walls.push(Bodies.rectangle(cx + gap * 1.4, top - gap * 1.4, gap * 2.4, 4, { isStatic: true, angle: -.6 }));
+    Composite.add(engine.world, [...pegs, ...walls]);
+    layout = { gap, top, cx, binTop, floor, left, rows, ballR: gap * .2 };
+    counts = new Array(NB).fill(0);
+  }
+
+  let dropped = 0, bias = 0;
+  function dropBall() {
+    if (balls.length > 900) { const old = balls.shift(); Composite.remove(engine.world, old); }
+    const { cx, top, gap, ballR } = layout;
+    const b = Bodies.circle(cx + (Math.random() - .5) * gap * .3 + bias * gap * .25, top - gap * 2.6, ballR, { restitution: .3, friction: .002, frictionAir: .012, density: .002 });
+    b.hue = 40 + Math.random() * 30 + (bias + 1) * 80;
+    b.counted = false;
+    balls.push(b); Composite.add(engine.world, b);
+    dropped++;
+  }
+  // 小球落入槽底后计数
+  Events.on(engine, 'afterUpdate', () => {
+    const { left, gap, binTop } = layout;
+    for (const b of balls) {
+      if (b.counted || b.position.y < binTop + gap * .5 || b.speed > .6) continue;
+      const i = Math.floor((b.position.x - left) / gap);
+      if (i >= 0 && i < NB) { counts[i]++; b.counted = true; }
+    }
+  });
+
+  // ---------- 渲染 ----------
+  let showCurve = true;
+  function draw() {
+    const { gap, left, binTop, floor, rows } = layout;
+    ctx.clearRect(0, 0, W, H);
+    // 收集槽背景柱状图（按计数）
+    const total = counts.reduce((a, b) => a + b, 0), max = Math.max(...counts, 1);
+    for (let i = 0; i < NB; i++) {
+      const h = counts[i] / max * (floor - binTop), x = left + i * gap;
+      const g = ctx.createLinearGradient(0, floor - h, 0, floor);
+      g.addColorStop(0, 'rgba(255,216,77,.22)'); g.addColorStop(1, 'rgba(255,122,61,.05)');
+      ctx.fillStyle = g; ctx.fillRect(x + 2, floor - h, gap - 4, h);
+    }
+    // 理论正态曲线（按二项分布的均值和方差）
+    if (showCurve && total > 20) {
+      const n = rows + 2, p = .5 + bias * .12, mu = n * p, sd = Math.sqrt(n * p * (1 - p)), peak = 1 / (sd * Math.sqrt(2 * Math.PI));
+      ctx.beginPath();
+      for (let x = 0; x <= NB; x += .1) {
+        const z = (x - .5 - mu) / sd, y = Math.exp(-z * z / 2) / (sd * Math.sqrt(2 * Math.PI)) / peak;
+        const px = left + x * gap, py = floor - y * (floor - binTop) * .95;
+        x === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+      }
+      ctx.strokeStyle = '#5ff8ff'; ctx.lineWidth = 2; ctx.shadowColor = '#5ff8ff'; ctx.shadowBlur = 12; ctx.stroke(); ctx.shadowBlur = 0;
+    }
+    // 钉子、挡板
+    ctx.fillStyle = '#9fb0ff';
+    ctx.shadowColor = '#7f9cff'; ctx.shadowBlur = 8;
+    for (const p of pegs) { ctx.beginPath(); ctx.arc(p.position.x, p.position.y, p.circleRadius, 0, 7); ctx.fill(); }
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#2a2e4a';
+    for (const w of walls) { ctx.beginPath(); w.vertices.forEach((v, i) => i ? ctx.lineTo(v.x, v.y) : ctx.moveTo(v.x, v.y)); ctx.closePath(); ctx.fill(); }
+    // 小球
+    for (const b of balls) {
+      ctx.beginPath(); ctx.arc(b.position.x, b.position.y, b.circleRadius, 0, 7);
+      ctx.fillStyle = `hsl(${b.hue},95%,${b.counted ? 55 : 65}%)`; ctx.fill();
+    }
+    document.getElementById('cnt').textContent = dropped;
+    if (total) { const mean = counts.reduce((s, c, i) => s + c * i, 0) / total; document.getElementById('mean').textContent = `第 ${(mean + 1).toFixed(1)} 槽`; }
+  }
+
+  // ---------- 交互 ----------
+  const $ = id => document.getElementById(id);
+  let pour = true;
+  $('pour').onclick = () => { pour = !pour; $('pour').classList.toggle('on', pour); };
+  $('drop100').onclick = () => { for (let i = 0; i < 100; i++) setTimeout(dropBall, i * 25); };
+  $('clear').onclick = () => { balls.forEach(b => Composite.remove(engine.world, b)); balls = []; counts.fill(0); dropped = 0; $('mean').textContent = '—'; };
+  $('bias').oninput = e => { bias = +e.target.value; };
+  $('curve').onclick = () => { showCurve = !showCurve; $('curve').classList.toggle('on', showCurve); };
+
+  build();
+  let last = performance.now(), acc = 0, pourT = 0;
+  (function loop(now) {
+    const dt = Math.min(now - last, 50); last = now;
+    if (!layout) { requestAnimationFrame(loop); return; }
+    if (pour && (pourT += dt) > 70) { pourT = 0; dropBall(); }
+    acc += dt;
+    while (acc >= 1000 / 120) { Engine.update(engine, 1000 / 120); acc -= 1000 / 120; }   // 半步长更新，防止小球穿钉
+    draw();
+    requestAnimationFrame(loop);
+  })(last);
+  addEventListener('resize', () => { build(); dropped = 0; });
+})();
+</script>
+<script src="shared.js?v=20261022"></script>
+</body>
+</html>

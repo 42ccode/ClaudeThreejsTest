@@ -30,7 +30,7 @@
   .paint button.on { border-color: #fff; transform: scale(1.25); box-shadow: 0 0 14px -2px var(--g); }
   .paint span { min-width: 4em; color: #fff; letter-spacing: .15em; font-size: 11px; }
 
-  .ctrl { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 5; display: flex; align-items: center; gap: 12px; padding: 8px; border-radius: 999px; border: 1px solid #ffffff22; background: #0a0d18d0; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+  .ctrl { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 5; display: flex; align-items: center; gap: 12px; padding: 8px; border-radius: 999px; border: 1px solid #ffffff22; background: #0a0d18d0; }
   .seg { position: relative; display: flex; border-radius: 999px; background: #ffffff0a; padding: 3px; }
   .seg i { position: absolute; top: 3px; bottom: 3px; left: 3px; border-radius: 999px; background: linear-gradient(90deg, #5ff8ff, #ff3dbb); transition: transform .45s cubic-bezier(.2,.9,.2,1), width .45s; }
   .seg button { position: relative; z-index: 1; border: 0; background: none; color: #b9c4e0; padding: 9px 18px; border-radius: 999px; font-size: 13px; letter-spacing: .12em; transition: color .3s; white-space: nowrap; }
@@ -46,19 +46,19 @@
   #leaders { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 3; }
   #leaders path { fill: none; stroke-width: 1; }
   #labels { position: fixed; inset: 0; pointer-events: none; z-index: 3; }
-  .co { position: absolute; top: 0; white-space: nowrap; opacity: 0; transition: opacity .25s; font-size: 12px; line-height: 1.2; }
+  .co { position: absolute; top: 0; left: 0; white-space: nowrap; will-change: transform; opacity: 0; transition: opacity .25s; font-size: 12px; line-height: 1.2; }
   .co b { display: block; font-size: 13px; color: #fff; font-weight: 600; }
   .co small { display: block; font-size: 9px; line-height: 1.3; letter-spacing: .15em; color: #7d8bb0; }
   .co.L { text-align: right; padding-right: 8px; border-right: 2px solid #ff3dbb; }
   .co.R { padding-left: 8px; border-left: 2px solid #5ff8ff; }
   .co.hot b { color: #5ff8ff; } .co.L.hot b { color: #ff3dbb; }
   .co.compact small { display: none; }
-    .co.tag { transform: translate(-50%, 16px); text-align: center; border: 0; padding: 3px 8px; background: #05060cb0; border-radius: 4px; }
+    .co.tag { text-align: center; border: 0; padding: 3px 8px; background: #05060cb0; border-radius: 4px; }
   .co.tag b { font-size: 11px; } .co.tag small { display: none; }
 
   /* 部件详情卡 */
   #card { position: fixed; top: 50%; right: 5vw; width: 300px; z-index: 6; transform: translate(30px, -50%); opacity: 0; pointer-events: none; transition: opacity .4s, transform .5s cubic-bezier(.2,.9,.2,1);
-    padding: 24px; border-radius: 18px; border: 1px solid #ffffff22; background: linear-gradient(160deg, #121a30e6, #0a0d18e6); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: 0 30px 80px -20px #000; }
+    padding: 24px; border-radius: 18px; border: 1px solid #ffffff22; background: linear-gradient(160deg, #121a30e6, #0a0d18e6); box-shadow: 0 30px 80px -20px #000; }
   #card.show { opacity: 1; transform: translate(0, -50%); pointer-events: auto; }
   #card .no { font-size: 11px; letter-spacing: .3em; color: #5ff8ff; }
   #card h3 { font-size: 28px; font-weight: 900; margin: 8px 0 2px; }
@@ -72,7 +72,7 @@
   #card .x { position: absolute; top: 16px; right: 16px; padding: 4px 10px; }
 
   /* 扫描识别面板 */
-  #scanHud { position: fixed; top: 28px; right: 5vw; width: 280px; z-index: 6; padding: 16px 18px; border-radius: 14px; border: 1px solid #5ff8ff44; background: #06121cd0; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); font-size: 11px; color: #9fdcff; opacity: 0; transform: translateY(-12px); transition: opacity .4s, transform .5s cubic-bezier(.2,.9,.2,1); pointer-events: none; }
+  #scanHud { position: fixed; top: 28px; right: 5vw; width: 280px; z-index: 6; padding: 16px 18px; border-radius: 14px; border: 1px solid #5ff8ff44; background: #06121cd0; font-size: 11px; color: #9fdcff; opacity: 0; transform: translateY(-12px); transition: opacity .4s, transform .5s cubic-bezier(.2,.9,.2,1); pointer-events: none; }
   #scanHud.show { opacity: 1; transform: none; }
   #scanHud .sh-top { display: flex; justify-content: space-between; align-items: baseline; letter-spacing: .3em; }
   #scanHud .sh-top span { animation: blink 1s steps(2) infinite; }
@@ -504,7 +504,11 @@ const knollCam = () => {
 };
 
 // ---------- 状态 ----------
-let E = 1, ET = 0, K = 0, KT = 0, scan = null, hot = null;
+let E = 1, ET = 0, K = 0, KT = 0, scan = null, hot = null, pointerMoved = false, frameNo = 0;
+// 只在值变化时才写 DOM，避免每帧无谓的样式写入与重排
+const put = (el, k, v) => { const c = el._c ??= {}; if (c[k] !== v) { c[k] = v; el.style[k] = v; } };
+const attr = (el, k, v) => { const c = el._a ??= {}; if (c[k] !== v) { c[k] = v; el.setAttribute(k, v); } };
+const cls = (el, v) => { if (el.className !== v) el.className = v; };
 const paintT = new THREE.Color(PAINTS[0][1]);
 
 function setMode(m) {
@@ -692,7 +696,7 @@ setTimeout(() => specsEl.querySelectorAll('.spec').forEach((el, i) => {
 // ---------- 交互：悬停与点击 ----------
 const ray = new THREE.Raycaster(), mouse = new THREE.Vector2(9, 9), down = new THREE.Vector2();
 const canvas = renderer.domElement;
-canvas.addEventListener('pointermove', e => mouse.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1));
+canvas.addEventListener('pointermove', e => { mouse.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); pointerMoved = true; });
 canvas.addEventListener('pointerleave', () => mouse.set(9, 9));
 canvas.addEventListener('pointerdown', e => down.set(e.clientX, e.clientY));
 canvas.addEventListener('pointerup', e => {
@@ -716,6 +720,7 @@ composer.addPass(new RenderPass(scene, camera));
 const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), .6, .4, .92);
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
+window.NEBULA?.adaptive(r => { renderer.setPixelRatio(r); composer.setPixelRatio(r); });
 
 // ---------- 主循环 ----------
 flyTo(DEFAULT_CAM.pos, DEFAULT_CAM.target);
@@ -745,13 +750,16 @@ renderer.setAnimationLoop(() => {
   const vis = eE * (1 - ease(K));
   ghostLine.opacity = vis * .45;
   traj.material.opacity = vis * .5;
-  parts.forEach((p, i) => {
-    const d = p.userData.part;
-    tmp.copy(d.base).add(d.center); tmp2.copy(p.position).add(d.center);
-    trajPos.set([tmp.x, tmp.y, tmp.z, tmp2.x, tmp2.y, tmp2.z], i * 6);
-  });
-  trajGeo.attributes.position.needsUpdate = true;
-  traj.computeLineDistances();
+  traj.visible = vis > .005;
+  if (traj.visible) {
+    parts.forEach((p, i) => {
+      const d = p.userData.part;
+      tmp.copy(d.base).add(d.center); tmp2.copy(p.position).add(d.center);
+      trajPos.set([tmp.x, tmp.y, tmp.z, tmp2.x, tmp2.y, tmp2.z], i * 6);
+    });
+    trajGeo.attributes.position.needsUpdate = true;
+    traj.computeLineDistances();
+  }
 
   // 镜头
   if (!camGoal && !focusPart && !KT) { const dy = lift * .8 - lastLift; controls.target.y += dy; camera.position.y += dy; }
@@ -774,7 +782,7 @@ renderer.setAnimationLoop(() => {
   holoAll.forEach(m => m.uniforms.uTime.value = t);
   holoBy.power.uniforms.uDim.value = .6 + .25 * Math.sin(t * 5);
   shadow.material.opacity = .35 * (1 - eE * .6) * (1 - K);
-  specsEl.style.opacity = focusPart || scan ? 0 : 1 - clamp01(E * 2 + K * 2);
+  put(specsEl, 'opacity', String(focusPart || scan ? 0 : 1 - clamp01(E * 2 + K * 2)));
 
   const scanZ = updateScan(t, dt);
 
@@ -790,8 +798,8 @@ renderer.setAnimationLoop(() => {
   updateFlow(t, ease(xr) * (1 - K) * (focusPart ? 0 : 1));
 
   // 悬停 + 扫描高亮（轮廓线变白）
-  hot = pick();
-  canvas.style.cursor = hot ? 'pointer' : 'grab';
+  if (pointerMoved || ++frameNo % 4 === 0) { hot = pick(); pointerMoved = false; }
+  put(canvas, 'cursor', hot ? 'pointer' : 'grab');
   parts.forEach(p => {
     const d = p.userData.part;
     d.flash = Math.max(0, (d.flash || 0) - dt * 1.5);
@@ -817,27 +825,31 @@ renderer.setAnimationLoop(() => {
   layoutCallouts(list);
   labeled.forEach(p => {
     const d = p.userData.part, el = d.el;
+    const sx = Math.round(d.sx), sy = Math.round(d.sy);
     if (d.tv && !d.cv) {
-      el.className = 'co tag' + (p === hot ? ' hot' : '');
-      el.style.left = d.sx + 'px'; el.style.right = 'auto'; el.style.top = d.sy + 'px';
-      el.style.opacity = 1;
-      d.path.style.opacity = d.dot.style.opacity = 0;
+      cls(el, 'co tag' + (p === hot ? ' hot' : ''));
+      put(el, 'transform', `translate(${sx}px,${sy}px) translate(-50%,16px)`);
+      put(el, 'opacity', '1');
+      put(d.path, 'opacity', '0'); put(d.dot, 'opacity', '0');
       return;
     }
-    el.style.opacity = d.cv;
-    d.path.style.opacity = d.dot.style.opacity = d.cv;
+    const op = d.cv.toFixed(2);
+    put(el, 'opacity', op); put(d.path, 'opacity', op); put(d.dot, 'opacity', op);
     if (!d.cv) return;
-    const L = d.side === 'L', col = L ? colL : colR;
-    el.className = `co ${d.side}` + (p === hot ? ' hot' : '') + (d.compact ? ' compact' : '');
-    el.style.top = d.ly - (d.compact ? 8 : 14) + 'px';
-    if (L) { el.style.left = 'auto'; el.style.right = W - col + 'px'; } else { el.style.right = 'auto'; el.style.left = col + 'px'; }
+    const L = d.side === 'L', col = Math.round(L ? colL : colR), ly = Math.round(d.ly);
+    cls(el, `co ${d.side}` + (p === hot ? ' hot' : '') + (d.compact ? ' compact' : ''));
+    // 左列右对齐：宽度按“是否紧凑”各量一次后缓存
+    const wKey = d.compact ? 'wc' : 'wf';
+    const x = L ? col - (d[wKey] ??= el.offsetWidth) : col;
+    put(el, 'transform', `translate(${x}px,${ly - (d.compact ? 8 : 14)}px)`);
     const color = L ? '#ff3dbb' : '#5ff8ff';
-    d.path.setAttribute('d', `M${d.sx},${d.sy} L${col + (L ? 22 : -22)},${d.ly} L${col},${d.ly}`);
-    d.path.setAttribute('stroke', color);
-    d.dot.setAttribute('cx', d.sx); d.dot.setAttribute('cy', d.sy); d.dot.setAttribute('fill', color);
+    attr(d.path, 'd', `M${sx},${sy} L${col + (L ? 22 : -22)},${ly} L${col},${ly}`);
+    attr(d.path, 'stroke', color);
+    attr(d.dot, 'cx', sx); attr(d.dot, 'cy', sy); attr(d.dot, 'fill', color);
   });
 
-  rng.value = Math.round(E * 100); val.textContent = Math.round(E * 100) + '%';
+  const pct = Math.round(E * 100);
+  if (+rng.value !== pct) { rng.value = pct; val.textContent = pct + '%'; }
   if (modeNow() !== segMode) { segMode = modeNow(); updateSeg(); }
   composer.render();
 });

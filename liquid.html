@@ -17,7 +17,7 @@
   .bottom { display: flex; justify-content: space-between; align-items: flex-end; gap: 20px; flex-wrap: wrap; }
   .tip { color: #8b90b8; font-size: 13px; letter-spacing: .1em; line-height: 1.8; }
   .modes { display: flex; gap: 10px; pointer-events: auto; }
-  .modes button { background: #ffffff0d; border: 1px solid #ffffff30; color: #fff; padding: 10px 20px; border-radius: 999px; font-size: 13px; letter-spacing: .15em; backdrop-filter: blur(8px); transition: .3s; }
+  .modes button { background: #0b0a16a8; border: 1px solid #ffffff30; color: #fff; padding: 10px 20px; border-radius: 999px; font-size: 13px; letter-spacing: .15em; transition: .3s; }
   .modes button.on { background: #fff; color: #05050a; }
   @media (max-width: 700px) { .ui { padding: 20px 16px 90px; } }
 </style>
@@ -121,6 +121,7 @@ document.querySelectorAll('.modes button').forEach(b => b.onclick = () => {
 
 function resize() { renderer.setSize(innerWidth, innerHeight); renderer.getDrawingBufferSize(u.uRes.value); }
 addEventListener('resize', resize); resize();
+window.NEBULA?.adaptive(r => { renderer.setPixelRatio(r); renderer.getDrawingBufferSize(u.uRes.value); }, { max: Math.min(devicePixelRatio, 1.5) });
 
 const clock = new THREE.Clock();
 renderer.setAnimationLoop(() => {

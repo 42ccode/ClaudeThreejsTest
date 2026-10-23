@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>迷你星球 · Tiny Planet</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; background: #0b1024; color: #fffaf0; font-family: "Inter", "PingFang SC", system-ui, sans-serif; user-select: none; -webkit-user-select: none; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  .mono { font-family: "SF Mono", ui-monospace, Menlo, monospace; }
+  .head { position: fixed; top: 28px; left: 5vw; z-index: 2; pointer-events: none; }
+  .head .tag { font-size: 11px; letter-spacing: .4em; color: #ffd27a; }
+  .head h1 { font-size: clamp(44px, 7vw, 100px); font-weight: 900; letter-spacing: -.02em; margin-top: 8px; line-height: 1; }
+  .head p { margin-top: 10px; font-size: 12px; letter-spacing: .25em; color: #b8c0dc; }
+  .stats { position: fixed; right: 5vw; top: 32px; z-index: 2; text-align: right; font-size: 11px; letter-spacing: .3em; color: #b8c0dc; pointer-events: none; line-height: 2.2; }
+  .stats b { color: #fff; font-size: 18px; font-weight: 500; letter-spacing: .05em; }
+  .ctrl { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 5; display: flex; align-items: center; gap: 6px; padding: 8px; border-radius: 999px; border: 1px solid #ffffff22; background: #0e1430e6; }
+  .ctrl button { border: 1px solid transparent; background: none; color: #dfe4f5; padding: 9px 14px; border-radius: 999px; font-size: 13px; letter-spacing: .08em; transition: .3s; white-space: nowrap; }
+  .ctrl button:hover { border-color: #ffffff44; }
+  .ctrl button.on { background: linear-gradient(90deg, #ffd27a, #7affb0); color: #0b1024; font-weight: 700; }
+  .ctrl .sep { width: 1px; align-self: stretch; background: #ffffff22; margin: 4px; }
+  .hint { position: fixed; left: 5vw; bottom: 40px; z-index: 2; font-size: 11px; letter-spacing: .25em; color: #b8c0dc; pointer-events: none; }
+  @media (max-width: 760px) {
+    .head { left: 16px; } .hint { display: none; } .stats { top: 120px; right: 16px; }
+    .ctrl { bottom: 84px; flex-wrap: wrap; justify-content: center; border-radius: 22px; width: calc(100% - 32px); } .ctrl .sep { display: none; }
+    .ctrl button { padding: 8px 10px; font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+<div class="head">
+  <div class="tag mono">TINY PLANET / SCENE · LOW POLY</div>
+  <h1>迷你星球</h1>
+  <p>一颗属于你的小星球 · 点击地面就能种下东西</p>
+</div>
+<div class="stats mono">树木 <b id="trees">0</b><br>房屋 <b id="houses">0</b><br>时间 <b id="clock">12:00</b></div>
+<div class="hint mono">点击陆地放置 · 拖动旋转星球</div>
+<div class="ctrl">
+  <button data-p="tree" class="on">🌲 树</button>
+  <button data-p="house">🏠 小屋</button>
+  <button data-p="rock">🪨 石头</button>
+  <span class="sep"></span>
+  <button id="fast">⏩ 日夜加速</button>
+  <button id="regen">换一颗星球</button>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.prepend(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, .1, 500);
+camera.position.set(0, 3, camera.aspect < 1 ? 30 : 22);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true; controls.enablePan = false; controls.minDistance = 10; controls.maxDistance = 40;
+controls.autoRotate = true; controls.autoRotateSpeed = .5;
+
+const hemi = new THREE.HemisphereLight(0xbfd8ff, 0x3a2a40, .8); scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xfff0d0, 2.2);
+sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -8, right: 8, top: 8, bottom: -8, near: 1, far: 60 });
+scene.add(sun, sun.target);
+const sunMesh = new THREE.Mesh(new THREE.SphereGeometry(1.4, 16, 16), new THREE.MeshBasicMaterial({ color: 0xfff1b0 }));
+const moonMesh = new THREE.Mesh(new THREE.IcosahedronGeometry(.9, 1), new THREE.MeshStandardMaterial({ color: 0xd8dcef, flatShading: true, emissive: 0x30344a }));
+scene.add(sunMesh, moonMesh);
+const stars = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(new Float32Array(1500 * 3).map(() => (Math.random() - .5) * 300), 3)),
+  new THREE.PointsMaterial({ size: .5, color: 0xffffff, transparent: true, opacity: 0 }));
+scene.add(stars);
+
+// ---------- 星球 ----------
+const R = 5;
+const world = new THREE.Group(); scene.add(world);
+let planet, water, seed = Math.random() * 100;
+function hash3(x, y, z) { const s = Math.sin(x * 127.1 + y * 311.7 + z * 74.7 + seed) * 43758.5453; return s - Math.floor(s); }
+function vnoise(x, y, z) {
+  const ix = Math.floor(x), iy = Math.floor(y), iz = Math.floor(z), fx = x - ix, fy = y - iy, fz = z - iz;
+  const u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy), w = fz * fz * (3 - 2 * fz);
+  const L = (a, b, t) => a + (b - a) * t, h = (a, b, c) => hash3(ix + a, iy + b, iz + c);
+  return L(L(L(h(0, 0, 0), h(1, 0, 0), u), L(h(0, 1, 0), h(1, 1, 0), u), v), L(L(h(0, 0, 1), h(1, 0, 1), u), L(h(0, 1, 1), h(1, 1, 1), u), v), w);
+}
+const height = n => vnoise(n.x * 1.6, n.y * 1.6, n.z * 1.6) * .9 + vnoise(n.x * 4, n.y * 4, n.z * 4) * .3 - .62;
+const C = { sand: new THREE.Color(0xf2d79a), grass: new THREE.Color(0x6ccf6a), forest: new THREE.Color(0x3f9e58), rock: new THREE.Color(0x9a8f9e), snow: new THREE.Color(0xffffff) };
+function buildPlanet() {
+  if (planet) { world.remove(planet, water); planet.geometry.dispose(); }
+  [...world.children].forEach(c => world.remove(c));
+  const g = new THREE.IcosahedronGeometry(R, 12).toNonIndexed();
+  const pos = g.attributes.position, colors = new Float32Array(pos.count * 3), n = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    n.fromBufferAttribute(pos, i).normalize();
+    const h = height(n), r = R + Math.max(h, -.05) * 1.6;
+    pos.setXYZ(i, n.x * r, n.y * r, n.z * r);
+  }
+  // 按三角面平均高度上色，形成低多边形色块
+  for (let i = 0; i < pos.count; i += 3) {
+    let avg = 0; for (let k = 0; k < 3; k++) avg += n.fromBufferAttribute(pos, i + k).length() - R;
+    avg /= 3;
+    const c = avg < .02 ? C.sand : avg < .3 ? C.grass : avg < .6 ? C.forest : avg < .85 ? C.rock : C.snow;
+    for (let k = 0; k < 3; k++) colors.set([c.r, c.g, c.b], (i + k) * 3);
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  g.computeVertexNormals();
+  planet = new THREE.Mesh(g, new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: .9 }));
+  planet.receiveShadow = planet.castShadow = true;
+  water = new THREE.Mesh(new THREE.IcosahedronGeometry(R + .02, 6), new THREE.MeshStandardMaterial({ color: 0x3aa8ff, flatShading: true, transparent: true, opacity: .82, roughness: .25, metalness: .1 }));
+  water.receiveShadow = true;
+  world.add(planet, water);
+  counts.tree = counts.house = 0;
+  // 随机撒一些初始树木
+  for (let i = 0; i < 40; i++) { const d = new THREE.Vector3().randomDirection(); const h = height(d); if (h > .06 && h < .5) place('tree', d, true); }
+  clouds.forEach(c => world.add(c));
+  updateStats();
+}
+
+// ---------- 可放置的物体 ----------
+const MAT = {
+  trunk: new THREE.MeshStandardMaterial({ color: 0x7a4f32, flatShading: true }),
+  leaf: [0x3fae5a, 0x2f8f4e, 0x8fd14f, 0xf0a04b].map(c => new THREE.MeshStandardMaterial({ color: c, flatShading: true })),
+  wall: new THREE.MeshStandardMaterial({ color: 0xfff1dc, flatShading: true }),
+  roof: [0xe85d5d, 0x5d8ee8, 0xf2b84b].map(c => new THREE.MeshStandardMaterial({ color: c, flatShading: true })),
+  window: new THREE.MeshStandardMaterial({ color: 0x223, emissive: 0xffc860, emissiveIntensity: 0 }),
+  rock: new THREE.MeshStandardMaterial({ color: 0x8c8496, flatShading: true }),
+};
+const counts = { tree: 0, house: 0 };
+const growing = [];
+function make(kind) {
+  const g = new THREE.Group();
+  if (kind === 'tree') {
+    const s = .7 + Math.random() * .5, leaf = MAT.leaf[Math.random() * MAT.leaf.length | 0];
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(.05, .08, .4, 5), MAT.trunk); trunk.position.y = .2;
+    g.add(trunk);
+    if (Math.random() < .5) { for (let k = 0; k < 3; k++) { const c = new THREE.Mesh(new THREE.ConeGeometry(.32 - k * .07, .4, 6), leaf); c.position.y = .45 + k * .22; g.add(c); } }
+    else { const b = new THREE.Mesh(new THREE.IcosahedronGeometry(.3, 0), leaf); b.position.y = .6; g.add(b); }
+    g.scale.setScalar(s);
+  } else if (kind === 'house') {
+    const body = new THREE.Mesh(new THREE.BoxGeometry(.5, .4, .45), MAT.wall); body.position.y = .2;
+    const roof = new THREE.Mesh(new THREE.ConeGeometry(.45, .35, 4), MAT.roof[Math.random() * MAT.roof.length | 0]); roof.position.y = .57; roof.rotation.y = Math.PI / 4;
+    const win = new THREE.Mesh(new THREE.PlaneGeometry(.14, .12), MAT.window); win.position.set(0, .22, .23);
+    g.add(body, roof, win);
+  } else {
+    const r = new THREE.Mesh(new THREE.DodecahedronGeometry(.18 + Math.random() * .15, 0), MAT.rock); r.position.y = .08; r.scale.y = .7; g.add(r);
+  }
+  g.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  return g;
+}
+function place(kind, dir, instant = false) {
+  const h = height(dir), r = R + Math.max(h, -.05) * 1.6;
+  if (h < .03) return false;   // 只能放在陆地上
+  const obj = make(kind);
+  obj.position.copy(dir).multiplyScalar(r - .02);
+  obj.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+  obj.rotateY(Math.random() * Math.PI * 2);
+  if (!instant) { obj.userData.target = obj.scale.x; obj.scale.setScalar(.001); growing.push(obj); }
+  world.add(obj);
+  if (kind in counts) counts[kind]++;
+  updateStats();
+  return true;
+}
+
+// 云朵：绕星球缓慢漂浮的低多边形团块
+const clouds = [];
+for (let i = 0; i < 9; i++) {
+  const g = new THREE.Group(), m = new THREE.MeshStandardMaterial({ color: 0xffffff, flatShading: true, transparent: true, opacity: .92 });
+  for (let k = 0; k < 4; k++) { const b = new THREE.Mesh(new THREE.IcosahedronGeometry(.3 + Math.random() * .25, 0), m); b.position.set((k - 1.5) * .35, Math.random() * .15, (Math.random() - .5) * .3); b.castShadow = true; g.add(b); }
+  const pivot = new THREE.Group(); pivot.rotation.set(Math.random() * 6, Math.random() * 6, Math.random() * 6);
+  g.position.y = R + 1.8 + Math.random() * .6; pivot.add(g); pivot.userData.speed = .03 + Math.random() * .05;
+  clouds.push(pivot);
+}
+
+// ---------- 交互 ----------
+const $ = id => document.getElementById(id);
+let kind = 'tree', dayLen = 60, timeOfDay = .35;
+function updateStats() { $('trees').textContent = counts.tree; $('houses').textContent = counts.house; }
+document.querySelectorAll('[data-p]').forEach(b => b.onclick = () => { kind = b.dataset.p; document.querySelectorAll('[data-p]').forEach(x => x.classList.toggle('on', x === b)); });
+$('fast').onclick = () => { dayLen = dayLen === 60 ? 8 : 60; $('fast').classList.toggle('on', dayLen !== 60); };
+$('regen').onclick = () => { seed = Math.random() * 100; buildPlanet(); };
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), down = new THREE.Vector2();
+renderer.domElement.addEventListener('pointerdown', e => down.set(e.clientX, e.clientY));
+renderer.domElement.addEventListener('pointerup', e => {
+  if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 5) return;
+  ndc.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+  ray.setFromCamera(ndc, camera);
+  const hit = ray.intersectObject(planet)[0];
+  if (hit) place(kind, world.worldToLocal(hit.point.clone()).normalize());
+});
+
+buildPlanet();
+const skyDay = new THREE.Color(0x7fb8ff), skyDusk = new THREE.Color(0xff9a6a), skyNight = new THREE.Color(0x070b1e), bg = new THREE.Color();
+const clock = new THREE.Clock();
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), .05);
+  timeOfDay = (timeOfDay + dt / dayLen) % 1;
+  const a = timeOfDay * Math.PI * 2;
+  sun.position.set(Math.cos(a) * 30, Math.sin(a) * 30, 10); sunMesh.position.copy(sun.position).multiplyScalar(.6);
+  moonMesh.position.set(-Math.cos(a) * 14, -Math.sin(a) * 14, -6);
+  const day = THREE.MathUtils.smoothstep(Math.sin(a), -.15, .35);
+  const dusk = Math.max(0, 1 - Math.abs(Math.sin(a)) * 4) * .8;
+  bg.copy(skyNight).lerp(skyDay, day).lerp(skyDusk, dusk * .6);
+  scene.background = bg;
+  sun.intensity = 2.4 * day; hemi.intensity = .25 + .65 * day;
+  stars.material.opacity = 1 - day;
+  MAT.window.emissiveIntensity = (1 - day) * 2.2;   // 入夜后小屋亮灯
+  const h = (timeOfDay * 24 + 6) % 24;
+  $('clock').textContent = `${String(Math.floor(h)).padStart(2, '0')}:${String(Math.floor(h % 1 * 60)).padStart(2, '0')}`;
+  for (let i = growing.length - 1; i >= 0; i--) {
+    const o = growing[i], s = o.scale.x + (o.userData.target - o.scale.x) * Math.min(dt * 6, 1) + .002;
+    o.scale.setScalar(Math.min(s, o.userData.target));
+    if (s >= o.userData.target) growing.splice(i, 1);
+  }
+  clouds.forEach(c => c.rotation.y += c.userData.speed * dt);
+  water.rotation.y += dt * .01;
+  controls.update();
+  renderer.render(scene, camera);
+});
+window.NEBULA?.adaptive(r => renderer.setPixelRatio(r));
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+</script>
+<script src="shared.js?v=20261022"></script>
+</body>
+</html>

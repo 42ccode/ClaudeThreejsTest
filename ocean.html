@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>落日海洋 · Ocean</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; background: #0a0610; color: #fff4ec; font-family: "Inter", "PingFang SC", system-ui, sans-serif; user-select: none; -webkit-user-select: none; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  .mono { font-family: "SF Mono", ui-monospace, Menlo, monospace; }
+  .head { position: fixed; top: 28px; left: 5vw; z-index: 2; pointer-events: none; text-shadow: 0 2px 20px #0006; }
+  .head .tag { font-size: 11px; letter-spacing: .4em; color: #ffd3a8; }
+  .head h1 { font-size: clamp(44px, 7vw, 100px); font-weight: 200; letter-spacing: .12em; margin-top: 8px; line-height: 1; }
+  .head p { margin-top: 10px; font-size: 12px; letter-spacing: .25em; color: #ffe6d4cc; }
+  .ctrl { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 5; display: flex; align-items: center; gap: 6px; padding: 8px; border-radius: 999px; border: 1px solid #ffffff2a; background: #120a14e0; }
+  .ctrl button { border: 1px solid transparent; background: none; color: #f2dccd; padding: 9px 14px; border-radius: 999px; font-size: 13px; letter-spacing: .08em; transition: .3s; white-space: nowrap; }
+  .ctrl button:hover { border-color: #ffffff44; }
+  .ctrl button.on { background: linear-gradient(90deg, #ffb36b, #ff6a8a); color: #1a0a08; font-weight: 700; }
+  .ctrl .sep { width: 1px; align-self: stretch; background: #ffffff22; margin: 4px; }
+  .ctrl label { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #f2dccd; padding: 0 8px; }
+  .ctrl input { width: 90px; accent-color: #ffb36b; }
+  @media (max-width: 760px) {
+    .head { left: 16px; }
+    .ctrl { bottom: 84px; flex-wrap: wrap; justify-content: center; border-radius: 22px; width: calc(100% - 32px); } .ctrl .sep { display: none; }
+    .ctrl button { padding: 8px 10px; font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+<div class="head">
+  <div class="tag mono">OCEAN / SHADER · RAYMARCHED WAVES</div>
+  <h1>落日海洋</h1>
+  <p>每一道浪都是实时计算的 · 拖动看向海面的不同方向</p>
+</div>
+<div class="ctrl">
+  <button data-t="0" class="on">日落</button>
+  <button data-t="1">黄昏</button>
+  <button data-t="2">月夜</button>
+  <span class="sep"></span>
+  <label>浪高 <input type="range" id="amp" min=".15" max="1.2" step=".05" value=".45"></label>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+
+const renderer = new THREE.WebGLRenderer({ antialias: false });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+document.body.prepend(renderer.domElement);
+const scene = new THREE.Scene(), cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+// 三套天色：[天顶, 地平线, 太阳色, 太阳高度, 水体色]
+const TIMES = [
+  [[.18, .2, .45], [1, .55, .32], [1, .75, .45], .06, [.01, .07, .12]],
+  [[.07, .06, .2], [.75, .3, .45], [1, .45, .5], -.01, [.02, .04, .09]],
+  [[.01, .02, .06], [.06, .1, .2], [.85, .9, 1], .22, [.005, .015, .03]],
+];
+const V = a => new THREE.Vector3(...a);
+const u = {
+  uRes: { value: new THREE.Vector2() }, uTime: { value: 0 }, uYaw: { value: 0 }, uAmp: { value: .45 },
+  uZen: { value: V(TIMES[0][0]) }, uHor: { value: V(TIMES[0][1]) }, uSun: { value: V(TIMES[0][2]) }, uSunH: { value: TIMES[0][3] }, uWater: { value: V(TIMES[0][4]) }, uMoon: { value: 0 },
+};
+scene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
+  uniforms: u,
+  vertexShader: `void main(){ gl_Position = vec4(position.xy, 0., 1.); }`,
+  fragmentShader: /* glsl */`
+    precision highp float;
+    uniform vec2 uRes; uniform float uTime, uYaw, uAmp, uSunH, uMoon; uniform vec3 uZen, uHor, uSun, uWater;
+    float h21(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+    float n2(vec2 p){ vec2 i = floor(p), f = fract(p), u = f * f * (3. - 2. * f);
+      return mix(mix(h21(i), h21(i + vec2(1, 0)), u.x), mix(h21(i + vec2(0, 1)), h21(i + vec2(1, 1)), u.x), u.y); }
+    // 海浪：几组不同方向、频率的尖顶正弦波叠加
+    float sea(vec2 p, int oct){
+      float h = 0., a = uAmp, f = .16;
+      for (int i = 0; i < 7; i++) {
+        if (i >= oct) break;
+        float an = float(i) * 1.37 + .4;
+        vec2 d = vec2(cos(an), sin(an));
+        float x = dot(d, p) * f + uTime * (.9 + float(i) * .23) + n2(p * f * .5) * 1.5;
+        h += a * pow(1. - abs(sin(x)), 1.6);
+        a *= .44; f *= 1.9;
+      }
+      return h - uAmp * .6;
+    }
+    vec3 sunDir(){ return normalize(vec3(0., uSunH + .02, 1.)); }
+    vec3 sky(vec3 rd){
+      vec3 c = mix(uHor, uZen, pow(clamp(rd.y, 0., 1.), .45));
+      float s = max(dot(rd, sunDir()), 0.);
+      c += uSun * (pow(s, 900.) * 6. + pow(s, 12.) * .35 + pow(s, 3.) * .12);
+      // 横向条状云
+      vec2 cp = rd.xz / max(rd.y, .03) * .4 + vec2(uTime * .01, 0.);
+      float cl = smoothstep(.55, .85, n2(cp * vec2(.6, 2.2)) * .6 + n2(cp * 3.) * .4) * smoothstep(.0, .15, rd.y);
+      c = mix(c, uHor * 1.3 + uSun * pow(s, 4.) * .6, cl * .55);
+      // 月夜时的星星
+      vec2 st = vec2(atan(rd.z, rd.x) * 80., rd.y * 160.);
+      c += uMoon * step(.988, h21(floor(st))) * smoothstep(.3, 0., length(fract(st) - .5)) * smoothstep(.05, .3, rd.y);
+      return c;
+    }
+    void main(){
+      vec2 uv = (gl_FragCoord.xy - .5 * uRes) / uRes.y;
+      vec3 ro = vec3(0., 2.4, uTime * 1.5);
+      float cy = cos(uYaw), sy = sin(uYaw);
+      vec3 fw = normalize(vec3(sy, -.08, cy)), rt = normalize(cross(fw, vec3(0., 1., 0.))), up = cross(rt, fw);
+      vec3 rd = normalize(fw * 1.3 + uv.x * rt + uv.y * up);
+      vec3 col = sky(rd);
+      if (rd.y < 0.) {
+        // 先用平面求出大致交点，再用少量步数贴近浪面
+        float t = (ro.y - 1.) / -rd.y;
+        for (int i = 0; i < 48; i++) {
+          vec3 p = ro + rd * t;
+          float d = p.y - sea(p.xz, 4);
+          if (abs(d) < .002 * t) break;
+          t += d * .6;
+          if (t > 400.) break;
+        }
+        vec3 p = ro + rd * t;
+        float e = .02 * (1. + t * .02);
+        vec3 n = normalize(vec3(sea(p.xz - vec2(e, 0.), 7) - sea(p.xz + vec2(e, 0.), 7), 2. * e, sea(p.xz - vec2(0., e), 7) - sea(p.xz + vec2(0., e), 7)));
+        n = normalize(mix(n, vec3(0., 1., 0.), smoothstep(30., 250., t)));   // 远处趋于平静，减少闪烁
+        float fres = pow(1. - max(dot(n, -rd), 0.), 5.) * .75 + .03;
+        vec3 refl = sky(reflect(rd, n));
+        float sss = pow(max(dot(rd, -sunDir()) * -.5 + .5, 0.), 3.) * max(p.y + .2, 0.) * .5;   // 浪尖透光
+        vec3 water = uWater * 1.8 + vec3(0., .07, .08) * max(p.y + .3, 0.) + uSun * sss * .3;
+        vec3 c = mix(water, refl, fres);
+        c += uSun * (pow(max(dot(reflect(rd, n), sunDir()), 0.), 120.) * 2.5 + pow(max(dot(reflect(rd, n), sunDir()), 0.), 12.) * .15);   // 日光碎金
+        col = mix(c, sky(vec3(rd.x, .001, rd.z)), smoothstep(80., 400., t));
+      }
+      col = 1. - exp(-col * 1.25);
+      gl_FragColor = vec4(pow(col, vec3(.95)), 1.);
+    }`,
+})));
+function resize() { renderer.setSize(innerWidth, innerHeight); renderer.getDrawingBufferSize(u.uRes.value); }
+addEventListener('resize', resize); resize();
+window.NEBULA?.adaptive(r => { renderer.setPixelRatio(r); renderer.getDrawingBufferSize(u.uRes.value); }, { max: Math.min(devicePixelRatio, 1.5), min: .6 });
+
+const $ = id => document.getElementById(id);
+let ti = 0, yaw = 0, yawT = 0, drag = null;
+renderer.domElement.addEventListener('pointerdown', e => { drag = e.clientX; });
+addEventListener('pointermove', e => { if (drag !== null) { yawT = Math.max(-1.2, Math.min(1.2, yawT - (e.clientX - drag) * .003)); drag = e.clientX; } });
+addEventListener('pointerup', () => { drag = null; });
+document.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { ti = +b.dataset.t; document.querySelectorAll('[data-t]').forEach(x => x.classList.toggle('on', x === b)); });
+$('amp').oninput = e => { u.uAmp.value = +e.target.value; };
+const tmp = new THREE.Vector3();
+let last = performance.now();
+requestAnimationFrame(function loop(now) {
+  const dt = Math.min((now - last) / 1000, .1); last = now;
+  u.uTime.value += dt;
+  yaw += (yawT - yaw) * Math.min(dt * 4, 1);
+  u.uYaw.value = yaw + Math.sin(u.uTime.value * .1) * .05;
+  const T = TIMES[ti], k = Math.min(dt * 1.5, 1);
+  u.uZen.value.lerp(tmp.set(...T[0]), k); u.uHor.value.lerp(tmp.set(...T[1]), k); u.uSun.value.lerp(tmp.set(...T[2]), k);
+  u.uWater.value.lerp(tmp.set(...T[4]), k); u.uSunH.value += (T[3] - u.uSunH.value) * k; u.uMoon.value += ((ti === 2 ? 1 : 0) - u.uMoon.value) * k;
+  renderer.render(scene, cam);
+  requestAnimationFrame(loop);
+});
+</script>
+<script src="shared.js?v=20261022"></script>
+</body>
+</html>

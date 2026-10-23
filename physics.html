@@ -20,7 +20,7 @@
   .score b i { font-style: normal; font-size: 16px; color: #7d8bb0; }
   .charge { position: fixed; left: 0; top: 0; width: 64px; height: 64px; margin: -32px 0 0 -32px; z-index: 4; pointer-events: none; opacity: 0; transition: opacity .2s; }
   .charge circle { fill: none; stroke-width: 3; }
-  .ctrl { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 5; display: flex; gap: 6px; padding: 8px; border-radius: 999px; border: 1px solid #ffffff22; background: #0a0d18d0; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+  .ctrl { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 5; display: flex; gap: 6px; padding: 8px; border-radius: 999px; border: 1px solid #ffffff22; background: #0a0d18d0; }
   .ctrl button { border: 1px solid transparent; background: none; color: #c3cbe4; padding: 9px 15px; border-radius: 999px; font-size: 13px; letter-spacing: .08em; transition: .3s; white-space: nowrap; }
   .ctrl button:hover { border-color: #b98bff88; }
   .ctrl button.on { background: linear-gradient(90deg, #5ff8ff, #b98bff); color: #04050b; font-weight: 700; }
@@ -284,6 +284,7 @@
 
   build('tower');
   engine.runRenderLoop(() => scene.render());
+  window.NEBULA?.adaptive(r => engine.setHardwareScalingLevel(1 / r));
   addEventListener('resize', () => engine.resize());
   document.getElementById('loading').classList.add('hide');
 })();

@@ -20,11 +20,11 @@
   .meter .bar i { position: absolute; left: 0; right: 0; bottom: 0; height: 0; border-radius: 6px; background: linear-gradient(#ff3dbb, #5ff8ff); box-shadow: 0 0 12px #5ff8ff; }
   .bpm { position: fixed; right: 5vw; top: calc(50% + 130px); z-index: 2; text-align: right; font-size: 10px; letter-spacing: .3em; color: #8b90b8; pointer-events: none; }
   .bpm b { display: block; font-size: 34px; font-weight: 200; color: #fff; letter-spacing: 0; }
-  #prompt { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 6; padding: 22px 34px; border-radius: 999px; border: 1px solid #ffffff33; background: #0a0816b0; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); color: #fff; font-size: 16px; letter-spacing: .15em; transition: opacity .6s, transform .6s; box-shadow: 0 0 60px -10px #ff3dbb88; }
+  #prompt { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 6; padding: 22px 34px; border-radius: 999px; border: 1px solid #ffffff33; background: #0a0816b0; color: #fff; font-size: 16px; letter-spacing: .15em; transition: opacity .6s, transform .6s; box-shadow: 0 0 60px -10px #ff3dbb88; }
   #prompt b { display: inline-grid; place-items: center; width: 34px; height: 34px; margin-right: 12px; border-radius: 50%; background: linear-gradient(135deg, #5ff8ff, #ff3dbb); color: #03020a; vertical-align: middle; }
   #prompt:hover { transform: translate(-50%, -50%) scale(1.05); }
   #prompt.hide { opacity: 0; pointer-events: none; transform: translate(-50%, -40%); }
-  .ctrl { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 5; display: flex; gap: 6px; padding: 8px; border-radius: 999px; border: 1px solid #ffffff22; background: #0a0816c0; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+  .ctrl { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 5; display: flex; gap: 6px; padding: 8px; border-radius: 999px; border: 1px solid #ffffff22; background: #0a0816c0; }
   .ctrl button { border: 1px solid transparent; background: none; color: #c9cde8; padding: 9px 16px; border-radius: 999px; font-size: 13px; letter-spacing: .08em; transition: .3s; white-space: nowrap; }
   .ctrl button:hover { border-color: #ffffff44; }
   .ctrl button.on { background: linear-gradient(90deg, #5ff8ff, #ff3dbb); color: #03020a; font-weight: 700; }
@@ -181,6 +181,7 @@ composer.addPass(new RenderPass(scene, camera));
 const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), .6, .45, .35);
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
+window.NEBULA?.adaptive(r => { renderer.setPixelRatio(r); composer.setPixelRatio(r); });
 
 // ---------- 界面 ----------
 const $ = id => document.getElementById(id);

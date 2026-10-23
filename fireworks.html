@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>烟花 · Fireworks</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; background: #03030a; color: #fff6ee; font-family: "Inter", "PingFang SC", system-ui, sans-serif; user-select: none; -webkit-user-select: none; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  .mono { font-family: "SF Mono", ui-monospace, Menlo, monospace; }
+  .head { position: fixed; top: 28px; left: 5vw; z-index: 2; pointer-events: none; }
+  .head .tag { font-size: 11px; letter-spacing: .4em; color: #ffcf6b; }
+  .head h1 { font-size: clamp(44px, 7vw, 100px); font-weight: 900; letter-spacing: -.02em; margin-top: 8px; line-height: 1; }
+  .head p { margin-top: 10px; font-size: 12px; letter-spacing: .25em; color: #a8a0b8; }
+  .count { position: fixed; right: 5vw; top: 32px; z-index: 2; text-align: right; font-size: 11px; letter-spacing: .3em; color: #a8a0b8; pointer-events: none; }
+  .count b { display: block; font-size: 40px; font-weight: 200; color: #fff; letter-spacing: 0; }
+  .ctrl { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 5; display: flex; align-items: center; gap: 6px; padding: 8px; border-radius: 999px; border: 1px solid #ffffff22; background: #0a0812e6; }
+  .ctrl button { border: 1px solid transparent; background: none; color: #e0d6ee; padding: 9px 14px; border-radius: 999px; font-size: 13px; letter-spacing: .08em; transition: .3s; white-space: nowrap; }
+  .ctrl button:hover { border-color: #ffffff44; }
+  .ctrl button.on { background: linear-gradient(90deg, #ffcf6b, #ff5f8a); color: #1a0808; font-weight: 700; }
+  .ctrl .sep { width: 1px; align-self: stretch; background: #ffffff22; margin: 4px; }
+  .hint { position: fixed; left: 5vw; bottom: 40px; z-index: 2; font-size: 11px; letter-spacing: .3em; color: #a8a0b8; pointer-events: none; }
+  @media (max-width: 760px) {
+    .head { left: 16px; } .hint { display: none; } .count { top: 120px; right: 16px; }
+    .ctrl { bottom: 84px; flex-wrap: wrap; justify-content: center; border-radius: 22px; width: calc(100% - 32px); } .ctrl .sep { display: none; }
+    .ctrl button { padding: 8px 10px; font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+<div class="head">
+  <div class="tag mono">FIREWORKS / PARTICLES · AFTERIMAGE TRAILS</div>
+  <h1>烟花</h1>
+  <p>点击夜空任意位置 · 那里就会绽放</p>
+</div>
+<div class="count mono">已绽放 BURSTS<b id="cnt">0</b></div>
+<div class="hint mono">点击发射 · 按住连发</div>
+<div class="ctrl">
+  <button data-s="random" class="on">随机</button>
+  <button data-s="peony">牡丹</button>
+  <button data-s="ring">光环</button>
+  <button data-s="heart">爱心</button>
+  <button data-s="willow">垂柳</button>
+  <span class="sep"></span>
+  <button id="auto" class="on">自动表演</button>
+  <button id="finale">终章齐放</button>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { AfterimagePass } from 'three/addons/postprocessing/AfterimagePass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+document.body.prepend(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, .1, 500);
+camera.position.set(0, 18, 60); camera.lookAt(0, 22, 0);
+
+// 远处城市天际线（剪影 + 零星灯光），给烟花一个参照
+const city = new THREE.Group();
+for (let i = 0; i < 70; i++) {
+  const w = 2 + Math.random() * 4, h = 3 + Math.pow(Math.random(), 2) * 16;
+  const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, 3), new THREE.MeshBasicMaterial({ color: 0x07060e }));
+  b.position.set((i - 35) * 3.2 + Math.random(), h / 2 - 2, -30 - Math.random() * 10);
+  city.add(b);
+}
+scene.add(city);
+const winGeo = new THREE.BufferGeometry(), wins = [];
+city.children.forEach(b => { const p = b.geometry.parameters; for (let k = 0; k < p.height * 1.2; k++) if (Math.random() < .35) wins.push(b.position.x + (Math.random() - .5) * p.width * .8, b.position.y + (Math.random() - .5) * p.height * .9, b.position.z + 1.6); });
+winGeo.setAttribute('position', new THREE.Float32BufferAttribute(wins, 3));
+scene.add(new THREE.Points(winGeo, new THREE.PointsMaterial({ size: .35, color: 0xffc070, transparent: true, opacity: .6 })));
+// 水面倒影：上下翻转的同一组粒子，透明度低
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(400, 200), new THREE.MeshBasicMaterial({ color: 0x04040c }));
+ground.rotation.x = -Math.PI / 2; ground.position.y = -2; scene.add(ground);
+
+// ---------- 粒子池 ----------
+const MAX = 30000;
+const pos = new Float32Array(MAX * 3), vel = new Float32Array(MAX * 3), col = new Float32Array(MAX * 3), life = new Float32Array(MAX), drag = new Float32Array(MAX), base = new Float32Array(MAX * 3), sparkle = new Uint8Array(MAX);
+const geo = new THREE.BufferGeometry();
+geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+const dot = (() => { const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d'); const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, '#fff'); gr.addColorStop(.25, '#fff'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); })();
+const pts = new THREE.Points(geo, new THREE.PointsMaterial({ size: .55, map: dot, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+pts.frustumCulled = false; scene.add(pts);
+const refl = new THREE.Points(geo, pts.material.clone()); refl.material.opacity = .18; refl.scale.y = -1; refl.position.y = -4; refl.frustumCulled = false; scene.add(refl);
+let head = 0;
+function emit(x, y, z, vx, vy, vz, c, l, d = .985, sp = 0) {
+  const i = head = (head + 1) % MAX, k = i * 3;
+  pos[k] = x; pos[k + 1] = y; pos[k + 2] = z; vel[k] = vx; vel[k + 1] = vy; vel[k + 2] = vz;
+  base[k] = c.r; base[k + 1] = c.g; base[k + 2] = c.b; life[i] = l; drag[i] = d; sparkle[i] = sp;
+}
+
+// ---------- 火箭与爆炸 ----------
+const rockets = [];
+const hue = () => new THREE.Color().setHSL(Math.random(), 1, .6);
+const SHAPES = ['peony', 'ring', 'heart', 'willow', 'crossette'];
+let shape = 'random', bursts = 0;
+function launch(tx, ty, kind) {
+  rockets.push({ x: tx * .3 + (Math.random() - .5) * 4, y: -1, z: (Math.random() - .5) * 6, tx, ty, kind: kind || (shape === 'random' ? SHAPES[Math.random() * SHAPES.length | 0] : shape), c: hue(), c2: hue() });
+  sfx('launch');
+}
+function explode(r) {
+  bursts++; document.getElementById('cnt').textContent = bursts;
+  const { x, y, z, c, c2, kind } = r, v = new THREE.Vector3();
+  if (kind === 'ring') {
+    const n = 220, ax = new THREE.Vector3().randomDirection(), q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), ax);
+    for (let i = 0; i < n; i++) { const a = i / n * Math.PI * 2; v.set(Math.cos(a), Math.sin(a), 0).applyQuaternion(q).multiplyScalar(14); emit(x, y, z, v.x, v.y, v.z, i % 2 ? c : c2, 1.6, .975, 1); }
+  } else if (kind === 'heart') {
+    for (let i = 0; i < 260; i++) {
+      const a = i / 260 * Math.PI * 2, hx = 16 * Math.pow(Math.sin(a), 3), hy = 13 * Math.cos(a) - 5 * Math.cos(2 * a) - 2 * Math.cos(3 * a) - Math.cos(4 * a);
+      emit(x, y, z, hx * .85, hy * .85, (Math.random() - .5) * 2, new THREE.Color(1, .3 + Math.random() * .2, .55), 1.7, .972, 1);
+    }
+  } else if (kind === 'willow') {
+    for (let i = 0; i < 280; i++) { v.randomDirection().multiplyScalar(9 + Math.random() * 3); emit(x, y, z, v.x, v.y, v.z, new THREE.Color(1, .75, .35), 3.2, .985, 2); }
+  } else if (kind === 'crossette') {
+    for (let i = 0; i < 6; i++) { v.randomDirection().multiplyScalar(13); rockets.push({ x, y, z, vx: v.x, vy: v.y, vz: v.z, child: .5, c: hue(), c2: c, kind: 'peony', small: true }); }
+  } else {
+    const n = r.small ? 90 : 340, sp = r.small ? 8 : 16;
+    for (let i = 0; i < n; i++) { v.randomDirection().multiplyScalar(sp * (.85 + Math.random() * .15)); emit(x, y, z, v.x, v.y, v.z, Math.random() < .5 ? c : c2, 1.5 + Math.random() * .6, .978, i % 3 === 0 ? 1 : 0); }
+  }
+  flash.intensity = r.small ? 3 : 12; flash.color.copy(c); flash.position.set(x, y, z);
+  sfx(r.small ? 'pop' : 'boom');
+}
+const flash = new THREE.PointLight(0xffffff, 0, 120); scene.add(flash);
+
+// ---------- 交互 ----------
+const $ = id => document.getElementById(id);
+let auto = true, holding = null, holdT = 0;
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0), hit = new THREE.Vector3();
+function skyPoint(e) { ndc.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); ray.setFromCamera(ndc, camera); return ray.ray.intersectPlane(plane, hit) ? hit.clone() : null; }
+renderer.domElement.addEventListener('pointerdown', e => { const p = skyPoint(e); if (p) { launch(p.x, Math.max(p.y, 10)); holding = e; holdT = 0; } });
+addEventListener('pointermove', e => { if (holding) holding = e; });
+addEventListener('pointerup', () => holding = null);
+document.querySelectorAll('[data-s]').forEach(b => b.onclick = () => { shape = b.dataset.s; document.querySelectorAll('[data-s]').forEach(x => x.classList.toggle('on', x === b)); });
+$('auto').onclick = () => { auto = !auto; $('auto').classList.toggle('on', auto); };
+$('finale').onclick = () => { for (let i = 0; i < 14; i++) setTimeout(() => launch((Math.random() - .5) * 70, 18 + Math.random() * 22), i * 120); };
+
+// 音效（随 BGM 开关）
+let actx, nb;
+function sfx(type) {
+  if (!window.BGM?.playing) return;
+  actx ??= new AudioContext();
+  if (!nb) { nb = actx.createBuffer(1, actx.sampleRate, actx.sampleRate); const d = nb.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; }
+  const s = actx.createBufferSource(), f = actx.createBiquadFilter(), g = actx.createGain(), t = actx.currentTime;
+  s.buffer = nb; f.type = type === 'launch' ? 'highpass' : 'lowpass';
+  f.frequency.value = type === 'launch' ? 2500 : type === 'boom' ? 600 : 1800;
+  const dur = type === 'boom' ? .9 : type === 'pop' ? .2 : .5, v = type === 'boom' ? .4 : .08;
+  g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(.001, t + dur);
+  s.connect(f).connect(g).connect(actx.destination); s.start(t, Math.random()); s.stop(t + dur);
+}
+
+// ---------- 后期：残影拖尾 + 泛光 ----------
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const after = new AfterimagePass(.9); composer.addPass(after);
+composer.addPass(new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), .9, .5, .1));
+composer.addPass(new OutputPass());
+window.NEBULA?.adaptive(r => { renderer.setPixelRatio(r); composer.setPixelRatio(r); });
+
+const clock = new THREE.Clock();
+let autoT = 0;
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 1 / 30), t = clock.elapsedTime;
+  if (auto && (autoT -= dt) < 0) { autoT = .6 + Math.random() * 1.2; launch((Math.random() - .5) * 60, 16 + Math.random() * 22); }
+  if (holding && (holdT += dt) > .18) { holdT = 0; const p = skyPoint(holding); if (p) launch(p.x + (Math.random() - .5) * 6, Math.max(p.y, 10)); }
+  // 火箭上升（带尾焰），到达目标高度后爆炸
+  for (let i = rockets.length - 1; i >= 0; i--) {
+    const r = rockets[i];
+    if (r.child !== undefined) {   // 分裂弹的子弹
+      r.x += r.vx * dt; r.y += r.vy * dt; r.z += r.vz * dt; r.vy -= 6 * dt; r.child -= dt;
+      emit(r.x, r.y, r.z, 0, 0, 0, r.c, .4, .9);
+      if (r.child <= 0) { explode(r); rockets.splice(i, 1); }
+      continue;
+    }
+    const dx = r.tx - r.x, dy = r.ty - r.y;
+    r.x += dx * dt * 1.6; r.y += Math.max(dy * dt * 1.8, 10 * dt);
+    emit(r.x, r.y, r.z, (Math.random() - .5) * 2, -3 - Math.random() * 3, (Math.random() - .5) * 2, new THREE.Color(1, .7, .4), .5, .92);
+    if (r.y >= r.ty - .5) { explode(r); rockets.splice(i, 1); }
+  }
+  // 粒子：阻力 + 重力 + 衰减；闪烁型粒子随机明灭
+  for (let i = 0; i < MAX; i++) {
+    if (life[i] <= 0) { if (col[i * 3] || col[i * 3 + 1]) col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = 0; continue; }
+    life[i] -= dt;
+    const k = i * 3, d = Math.pow(drag[i], dt * 60);
+    vel[k] *= d; vel[k + 1] = vel[k + 1] * d - (sparkle[i] === 2 ? 5 : 7) * dt; vel[k + 2] *= d;
+    pos[k] += vel[k] * dt; pos[k + 1] += vel[k + 1] * dt; pos[k + 2] += vel[k + 2] * dt;
+    let b = Math.min(life[i], 1);
+    if (sparkle[i] === 1 && life[i] < .9) b *= Math.random() < .5 ? 1.4 : .2;
+    col[k] = base[k] * b; col[k + 1] = base[k + 1] * b; col[k + 2] = base[k + 2] * b;
+  }
+  geo.attributes.position.needsUpdate = true; geo.attributes.color.needsUpdate = true;
+  flash.intensity *= Math.pow(.02, dt);
+  camera.position.x = Math.sin(t * .05) * 6; camera.lookAt(0, 22, 0);
+  composer.render();
+});
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight);
+});
+</script>
+<script src="shared.js?v=20261022"></script>
+</body>
+</html>

@@ -243,7 +243,7 @@
   // ---------- 界面：均衡器按钮 + 提示 ----------
   const css = document.createElement('style');
   css.textContent = `
-  .bgm-btn{position:fixed;right:100px;bottom:24px;z-index:900;width:64px;height:64px;border-radius:50%;border:1px solid #ffffff40;background:#ffffff0d;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);cursor:pointer;display:flex;align-items:center;justify-content:center;gap:3px;transition:transform .4s,background .4s,border-color .4s}
+  .bgm-btn{position:fixed;right:100px;bottom:24px;z-index:900;width:64px;height:64px;border-radius:50%;border:1px solid #ffffff40;background:#0b0a16cc;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:3px;transition:transform .4s,background .4s,border-color .4s}
   .bgm-btn:hover{transform:scale(1.1);background:#ffffff22}
   .bgm-btn.on{border-color:#5ff8ff;box-shadow:0 0 24px -6px #5ff8ff}
   .bgm-btn i{width:3px;height:4px;border-radius:2px;background:#fff;transition:height .08s}

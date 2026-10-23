@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>撕裂布料 · Cloth</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; background: #03040a; color: #eef1ff; font-family: "Inter", "PingFang SC", system-ui, sans-serif; user-select: none; -webkit-user-select: none; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  .mono { font-family: "SF Mono", ui-monospace, Menlo, monospace; }
+  .head { position: fixed; top: 28px; left: 5vw; z-index: 2; pointer-events: none; }
+  .head .tag { font-size: 11px; letter-spacing: .4em; color: #ff3dbb; }
+  .head h1 { font-size: clamp(44px, 7vw, 100px); font-weight: 900; letter-spacing: -.02em; margin-top: 8px; line-height: 1; }
+  .head p { margin-top: 10px; font-size: 12px; letter-spacing: .25em; color: #8b90b8; }
+  .stats { position: fixed; right: 5vw; top: 32px; z-index: 2; text-align: right; pointer-events: none; }
+  .stats small { display: block; font-size: 10px; letter-spacing: .3em; color: #8b90b8; }
+  .stats b { font-size: 40px; font-weight: 200; }
+  .stats b i { font-style: normal; font-size: 14px; color: #8b90b8; }
+  .stats .bar { width: 180px; height: 2px; background: #ffffff15; margin: 8px 0 0 auto; }
+  .stats .bar span { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #5ff8ff, #ff3dbb); }
+  .ctrl { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 5; display: flex; align-items: center; gap: 6px; padding: 8px; border-radius: 999px; border: 1px solid #ffffff22; background: #0a0b14e6; }
+  .ctrl button { border: 1px solid transparent; background: none; color: #c9cde8; padding: 9px 14px; border-radius: 999px; font-size: 13px; letter-spacing: .08em; transition: .3s; white-space: nowrap; }
+  .ctrl button:hover { border-color: #ffffff44; }
+  .ctrl button.on { background: linear-gradient(90deg, #5ff8ff, #ff3dbb); color: #03040a; font-weight: 700; }
+  .ctrl .sep { width: 1px; align-self: stretch; background: #ffffff22; margin: 4px; }
+  .hint { position: fixed; left: 5vw; bottom: 40px; z-index: 2; font-size: 11px; letter-spacing: .25em; color: #8b90b8; line-height: 1.9; pointer-events: none; }
+  @media (max-width: 760px) {
+    .head { left: 16px; } .hint { display: none; } .stats { top: 120px; right: 16px; } .stats b { font-size: 26px; } .stats .bar { width: 110px; }
+    .ctrl { bottom: 84px; flex-wrap: wrap; justify-content: center; border-radius: 22px; width: calc(100% - 32px); } .ctrl .sep { display: none; }
+    .ctrl button { padding: 8px 10px; font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+<div class="head">
+  <div class="tag mono">CLOTH / 14 · VERLET PHYSICS</div>
+  <h1>撕裂布料</h1>
+  <p>两千个质点 · 四千根弹簧 · 拉得太狠就会断</p>
+</div>
+<div class="stats mono"><small>已断开 TORN</small><b id="torn">0<i> / 0</i></b><div class="bar"><span id="bar"></span></div></div>
+<div class="hint mono">拖动布料拉扯 · 按住 Shift 或右键划过即可剪断<br>线条颜色 = 张力：青 → 粉 → 白（即将断裂）</div>
+<div class="ctrl">
+  <button data-m="grab" class="on">✋ 抓取</button>
+  <button data-m="cut">✂ 剪刀</button>
+  <span class="sep"></span>
+  <button id="wind" class="on">风</button>
+  <button id="drop">松开挂钩</button>
+  <button id="reset">重置</button>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+document.body.prepend(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, .1, 100);
+const fitCam = () => { camera.position.set(0, 0, Math.max(12, 12.5 / (2 * Math.tan(THREE.MathUtils.degToRad(22.5)) * camera.aspect))); camera.lookAt(0, 0, 0); };
+fitCam();
+
+// 布料后面的发光文字
+const cv = document.createElement('canvas'); cv.width = 2048; cv.height = 512;
+{ const g = cv.getContext('2d');
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.font = '900 300px "PingFang SC","Inter",sans-serif';
+  const grad = g.createLinearGradient(400, 0, 1650, 0); grad.addColorStop(0, '#5ff8ff'); grad.addColorStop(1, '#ff3dbb');
+  g.fillStyle = grad; g.globalAlpha = .55; g.fillText('撕开它', 1024, 230);
+  g.font = '600 64px "SF Mono",monospace'; g.globalAlpha = .4; g.fillStyle = '#fff'; g.fillText('T E A R   I T   A P A R T', 1024, 430); }
+const back = new THREE.Mesh(new THREE.PlaneGeometry(12, 3), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(cv), transparent: true, depthWrite: false }));
+back.position.set(0, -.8, -2.5); scene.add(back);
+
+// ---------- 布料数据 ----------
+const COLS = 56, ROWS = 34, SP = .2, TOP = 2.6, TEAR = 3.6, FLOOR = -5;
+const N = COLS * ROWS;
+const P = new Float32Array(N * 3), O = new Float32Array(N * 3), pinned = new Uint8Array(N);
+let CA, CB, alive, nC;
+function build() {
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+    const i = r * COLS + c, x = (c - (COLS - 1) / 2) * SP, y = TOP - r * SP;
+    P.set([x, y, 0], i * 3); O.set([x, y, 0], i * 3);
+    pinned[i] = r === 0 ? 1 : 0;
+  }
+  const a = [], b = [];
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+    const i = r * COLS + c;
+    if (c < COLS - 1) { a.push(i); b.push(i + 1); }
+    if (r < ROWS - 1) { a.push(i); b.push(i + COLS); }
+  }
+  CA = Uint32Array.from(a); CB = Uint32Array.from(b); nC = CA.length;
+  alive = new Uint8Array(nC).fill(1);
+}
+build();
+
+// ---------- 渲染：每根弹簧一条线段，颜色表示张力 ----------
+const linePos = new Float32Array(nC * 6), lineCol = new Float32Array(nC * 6);
+const lines = new THREE.LineSegments(
+  new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(linePos, 3)).setAttribute('color', new THREE.BufferAttribute(lineCol, 3)),
+  new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+lines.frustumCulled = false; scene.add(lines);
+const nodes = new THREE.Points(new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(P, 3)),
+  new THREE.PointsMaterial({ size: .045, color: 0x9fe8ff, transparent: true, opacity: .55, blending: THREE.AdditiveBlending, depthWrite: false }));
+nodes.frustumCulled = false; scene.add(nodes);
+const hooks = new THREE.Mesh(new THREE.BoxGeometry(COLS * SP + .4, .06, .06), new THREE.MeshBasicMaterial({ color: 0xff3dbb }));
+hooks.position.y = TOP + .05; scene.add(hooks);
+const CY = new THREE.Color(0x3fd8ff), PK = new THREE.Color(0xff3dbb), WH = new THREE.Color(0xffffff), tc = new THREE.Color();
+
+// ---------- 交互 ----------
+const $ = id => document.getElementById(id);
+let mode = 'grab', wind = true, grabbed = -1, cutting = false;
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+const mouse = new THREE.Vector3(), lastMouse = new THREE.Vector3();
+function toWorld(e, out) { ndc.set(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1); ray.setFromCamera(ndc, camera); return ray.ray.intersectPlane(plane, out); }
+renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
+renderer.domElement.addEventListener('pointerdown', e => {
+  if (!toWorld(e, mouse)) return;
+  lastMouse.copy(mouse);
+  if (mode === 'cut' || e.shiftKey || e.button === 2) { cutting = true; return; }
+  let best = .6 * .6;
+  for (let i = 0; i < N; i++) { const dx = P[i * 3] - mouse.x, dy = P[i * 3 + 1] - mouse.y, d = dx * dx + dy * dy; if (d < best) { best = d; grabbed = i; } }
+});
+addEventListener('pointermove', e => {
+  if (!toWorld(e, mouse)) return;
+  if (cutting) { cutAlong(lastMouse, mouse); lastMouse.copy(mouse); }
+});
+addEventListener('pointerup', () => { grabbed = -1; cutting = false; });
+
+// 剪刀：鼠标划过的线段与弹簧（xy 投影）相交即剪断
+function segHit(ax, ay, bx, by, cx, cy, dx, dy) {
+  const d = (bx - ax) * (dy - cy) - (by - ay) * (dx - cx);
+  if (Math.abs(d) < 1e-9) return false;
+  const u = ((cx - ax) * (dy - cy) - (cy - ay) * (dx - cx)) / d, v = ((cx - ax) * (by - ay) - (cy - ay) * (bx - ax)) / d;
+  return u >= 0 && u <= 1 && v >= 0 && v <= 1;
+}
+function cutAlong(a, b) {
+  for (let k = 0; k < nC; k++) {
+    if (!alive[k]) continue;
+    const i = CA[k] * 3, j = CB[k] * 3;
+    if (segHit(a.x, a.y, b.x, b.y, P[i], P[i + 1], P[j], P[j + 1])) { alive[k] = 0; tornNow++; }
+  }
+}
+
+document.querySelectorAll('[data-m]').forEach(b => b.onclick = () => { mode = b.dataset.m; document.querySelectorAll('[data-m]').forEach(x => x.classList.toggle('on', x === b)); });
+$('wind').onclick = () => { wind = !wind; $('wind').classList.toggle('on', wind); };
+$('drop').onclick = () => { pinned.fill(0); hooks.visible = false; };
+$('reset').onclick = () => { build(); hooks.visible = true; };
+
+// 撕裂音效（随 BGM 开关，限流）
+let actx, noiseBuf, lastSnd = 0, tornNow = 0;
+function snap(n) {
+  if (!window.BGM?.playing || performance.now() - lastSnd < 70) return;
+  lastSnd = performance.now();
+  actx ??= new AudioContext();
+  if (!noiseBuf) { noiseBuf = actx.createBuffer(1, actx.sampleRate * .1, actx.sampleRate); const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; }
+  const s = actx.createBufferSource(), f = actx.createBiquadFilter(), g = actx.createGain(), t = actx.currentTime;
+  s.buffer = noiseBuf; f.type = 'bandpass'; f.frequency.value = 2500 + Math.random() * 2000; f.Q.value = 2;
+  g.gain.setValueAtTime(Math.min(.04 + n * .01, .15), t); g.gain.exponentialRampToValueAtTime(.001, t + .08);
+  s.connect(f).connect(g).connect(actx.destination); s.start(t);
+}
+
+// ---------- Verlet 模拟 ----------
+function simulate(dt, t) {
+  const dt2 = dt * dt, gy = -12;
+  for (let i = 0; i < N; i++) {
+    if (pinned[i]) continue;
+    const k = i * 3, x = P[k], y = P[k + 1], z = P[k + 2];
+    const vx = (x - O[k]) * .99, vy = (y - O[k + 1]) * .99, vz = (z - O[k + 2]) * .99;
+    O[k] = x; O[k + 1] = y; O[k + 2] = z;
+    const wz = wind ? (Math.sin(t * 1.3 + x * .5) + Math.sin(t * 2.1 + y * .7 + x * .3) * .6) * 2.2 : 0;
+    P[k] = x + vx; P[k + 1] = y + vy + gy * dt2; P[k + 2] = z + vz + wz * dt2;
+    if (P[k + 1] < FLOOR) { P[k + 1] = FLOOR; O[k] = P[k] - vx * .6; }
+  }
+  for (let it = 0; it < 4; it++) {
+    if (grabbed >= 0) { const k = grabbed * 3; P[k] = O[k] = mouse.x; P[k + 1] = O[k + 1] = mouse.y; P[k + 2] = O[k + 2] = 0; }
+    for (let c = 0; c < nC; c++) {
+      if (!alive[c]) continue;
+      const i = CA[c] * 3, j = CB[c] * 3;
+      const dx = P[j] - P[i], dy = P[j + 1] - P[i + 1], dz = P[j + 2] - P[i + 2];
+      const d = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1e-6;
+      if (d > SP * TEAR) { alive[c] = 0; tornNow++; continue; }
+      const f = (d - SP) / d * .5, pi = pinned[CA[c]], pj = pinned[CB[c]];
+      const wi = pi ? 0 : pj ? 2 : 1, wj = pj ? 0 : pi ? 2 : 1;
+      P[i] += dx * f * wi; P[i + 1] += dy * f * wi; P[i + 2] += dz * f * wi;
+      P[j] -= dx * f * wj; P[j + 1] -= dy * f * wj; P[j + 2] -= dz * f * wj;
+    }
+  }
+}
+
+function draw() {
+  let torn = 0;
+  for (let c = 0; c < nC; c++) {
+    const i = CA[c] * 3, j = CB[c] * 3, o = c * 6;
+    linePos[o] = P[i]; linePos[o + 1] = P[i + 1]; linePos[o + 2] = P[i + 2];
+    linePos[o + 3] = P[j]; linePos[o + 4] = P[j + 1]; linePos[o + 5] = P[j + 2];
+    if (!alive[c]) { torn++; lineCol.fill(0, o, o + 6); continue; }   // 加法混合下黑色即不可见
+    const dx = P[j] - P[i], dy = P[j + 1] - P[i + 1], dz = P[j + 2] - P[i + 2];
+    const strain = (Math.sqrt(dx * dx + dy * dy + dz * dz) / SP - 1) / (TEAR - 1);
+    tc.copy(CY).lerp(PK, Math.min(strain * 2.2, 1)).lerp(WH, Math.max(0, strain * 2.2 - 1) * .8).multiplyScalar(.9);
+    lineCol[o] = lineCol[o + 3] = tc.r; lineCol[o + 1] = lineCol[o + 4] = tc.g; lineCol[o + 2] = lineCol[o + 5] = tc.b;
+  }
+  lines.geometry.attributes.position.needsUpdate = true;
+  lines.geometry.attributes.color.needsUpdate = true;
+  nodes.geometry.attributes.position.needsUpdate = true;
+  $('torn').innerHTML = `${torn}<i> / ${nC}</i>`;
+  $('bar').style.width = (torn / nC * 100).toFixed(1) + '%';
+}
+
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+composer.addPass(new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), .7, .4, .2));
+composer.addPass(new OutputPass());
+window.NEBULA?.adaptive(r => { renderer.setPixelRatio(r); composer.setPixelRatio(r); });
+
+const clock = new THREE.Clock();
+let acc = 0;
+renderer.setAnimationLoop(() => {
+  const dt = clock.getDelta(), t = clock.elapsedTime;   // getElapsedTime() 会重置 delta，只能先取 delta
+  acc = Math.min(acc + dt, .05);
+  tornNow = 0;
+  // 固定 1/60 步长（最多补 3 步），不同刷新率下手感一致
+  while (acc >= 1 / 60) { simulate(1 / 60, t); acc -= 1 / 60; }
+  if (tornNow) snap(tornNow);
+  draw();
+  camera.position.x += ((ndc.x || 0) * .8 - camera.position.x) * .03;
+  camera.lookAt(0, 0, 0);
+  composer.render();
+});
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight; fitCam(); camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight);
+});
+</script>
+<script src="shared.js?v=20261022"></script>
+</body>
+</html>

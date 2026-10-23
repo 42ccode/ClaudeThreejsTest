@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>落沙世界 · Sand</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; overflow: hidden; background: #07060d; color: #eef1ff; font-family: "Inter", "PingFang SC", system-ui, sans-serif; user-select: none; -webkit-user-select: none; }
+  #c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; image-rendering: pixelated; touch-action: none; }
+  .mono { font-family: "SF Mono", ui-monospace, Menlo, monospace; }
+  .head { position: fixed; top: 28px; left: 5vw; z-index: 2; pointer-events: none; }
+  .head .tag { font-size: 11px; letter-spacing: .4em; color: #ffb547; }
+  .head h1 { font-size: clamp(44px, 7vw, 100px); font-weight: 900; letter-spacing: -.02em; margin-top: 8px; line-height: 1; }
+  .head p { margin-top: 10px; font-size: 12px; letter-spacing: .25em; color: #8b90b8; }
+  .stat { position: fixed; right: 5vw; top: 32px; z-index: 2; text-align: right; font-size: 11px; letter-spacing: .25em; color: #8b90b8; pointer-events: none; }
+  .stat b { display: block; font-size: 30px; font-weight: 200; color: #fff; letter-spacing: 0; }
+  .palette { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 5; display: flex; align-items: center; gap: 4px; padding: 8px; border-radius: 999px; border: 1px solid #ffffff22; background: #0b0a14ee; }
+  .palette button { display: flex; align-items: center; gap: 7px; border: 1px solid transparent; background: none; color: #c9cde8; padding: 8px 12px; border-radius: 999px; font-size: 13px; transition: .25s; white-space: nowrap; }
+  .palette button i { width: 12px; height: 12px; border-radius: 3px; background: var(--c); box-shadow: 0 0 8px var(--c); }
+  .palette button:hover { border-color: #ffffff44; }
+  .palette button.on { background: #ffffff18; border-color: var(--c); color: #fff; }
+  .palette .sep { width: 1px; align-self: stretch; background: #ffffff22; margin: 4px; }
+  .hint { position: fixed; left: 5vw; bottom: 40px; z-index: 2; font-size: 11px; letter-spacing: .2em; color: #8b90b8; line-height: 1.9; pointer-events: none; }
+  @media (max-width: 900px) {
+    .head { left: 16px; } .hint { display: none; } .stat { top: 120px; right: 16px; }
+    .palette { bottom: 84px; flex-wrap: wrap; justify-content: center; border-radius: 22px; width: calc(100% - 32px); } .palette .sep { display: none; }
+    .palette button { padding: 7px 9px; font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="head">
+  <div class="tag mono">SAND / 17 · CELLULAR AUTOMATA</div>
+  <h1>落沙世界</h1>
+  <p>每个像素都是一种元素 · 它们会坠落、流动、燃烧、凝固</p>
+</div>
+<div class="stat mono">粒子 PARTICLES<b id="cnt">0</b></div>
+<div class="hint mono">按住拖动作画 · 右键擦除 · 滚轮调笔刷<br>试试：岩浆 + 水 → 石头，火 + 油 → 爆燃</div>
+<div class="palette" id="pal"></div>
+
+<script>
+(() => {
+  // ---------- 元素定义 ----------
+  const E = { EMPTY: 0, SAND: 1, WATER: 2, STONE: 3, FIRE: 4, PLANT: 5, SMOKE: 6, LAVA: 7, OIL: 8 };
+  const COL = { 1: [232, 196, 118], 2: [52, 140, 255], 3: [110, 110, 128], 4: [255, 120, 30], 5: [70, 220, 110], 6: [90, 90, 100], 7: [255, 70, 20], 8: [120, 70, 150] };
+  const TOOLS = [['SAND', '沙子', '#e8c476'], ['WATER', '水', '#348cff'], ['LAVA', '岩浆', '#ff4614'], ['FIRE', '火', '#ff9a2e'], ['PLANT', '植物', '#46dc6e'], ['OIL', '油', '#9a5cc8'], ['STONE', '石墙', '#8a8aa0'], ['EMPTY', '橡皮', '#ffffff']];
+
+  const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+  const off = document.createElement('canvas'), octx = off.getContext('2d');
+  const glow = document.createElement('canvas'), gctx = glow.getContext('2d');
+  let CELL, W, H, T, L, S, M, img, frame = 0;
+  function init() {
+    if (!innerWidth || !innerHeight) { requestAnimationFrame(init); return; }   // 窗口尚无尺寸（如后台标签）时稍后再试
+    CELL = innerWidth < 760 ? 3 : 4;
+    W = Math.ceil(innerWidth / CELL); H = Math.ceil(innerHeight / CELL);
+    T = new Uint8Array(W * H);  // 类型
+    L = new Uint8Array(W * H);  // 寿命（火、烟）
+    S = new Uint8Array(W * H);  // 颗粒明暗变化
+    M = new Uint8Array(W * H);  // 本帧是否已移动
+    for (let i = 0; i < S.length; i++) S[i] = Math.random() * 40;
+    off.width = W; off.height = H; img = octx.createImageData(W, H);
+    glow.width = Math.ceil(W / 4); glow.height = Math.ceil(H / 4);
+    cv.width = innerWidth; cv.height = innerHeight;
+    ctx.imageSmoothingEnabled = false;
+    demo();
+  }
+  const idx = (x, y) => y * W + x;
+  const inb = (x, y) => x >= 0 && x < W && y >= 0 && y < H;
+  const get = (x, y) => inb(x, y) ? T[idx(x, y)] : E.STONE;
+  function set(x, y, t, life = 0) { if (!inb(x, y)) return; const i = idx(x, y); T[i] = t; L[i] = life; }
+  function swap(a, b) { const t = T[a]; T[a] = T[b]; T[b] = t; const l = L[a]; L[a] = L[b]; L[b] = l; const s = S[a]; S[a] = S[b]; S[b] = s; M[a] = M[b] = frame & 255 || 1; }
+
+  // 开场布景：两道石台、一湾水、一片草、一堆沙
+  function demo() {
+    const rect = (x0, y0, x1, y1, t) => { for (let y = Math.floor(y0 * H); y < y1 * H; y++) for (let x = Math.floor(x0 * W); x < x1 * W; x++) set(x, y, t); };
+    rect(.12, .62, .45, .64, E.STONE); rect(.55, .5, .88, .52, E.STONE);
+    rect(.12, .5, .13, .62, E.STONE); rect(.44, .5, .45, .62, E.STONE);
+    rect(.13, .54, .44, .62, E.WATER); rect(.13, .52, .44, .54, E.OIL);
+    rect(.6, .46, .84, .5, E.PLANT);
+    for (let i = 0; i < 2500; i++) { const x = Math.floor(W * (.62 + Math.random() * .2)), y = Math.floor(H * (.12 + Math.random() * .25)); set(x, y, E.SAND); }
+  }
+
+  // ---------- 规则 ----------
+  const passable = (t, heavy) => t === E.EMPTY || t === E.SMOKE || (heavy && (t === E.WATER || t === E.OIL));
+  function update() {
+    frame++;
+    const stamp = frame & 255 || 1;
+    for (let y = H - 1; y >= 0; y--) {
+      const ltr = (frame + y) & 1;
+      for (let k = 0; k < W; k++) {
+        const x = ltr ? k : W - 1 - k, i = idx(x, y), t = T[i];
+        if (t === E.EMPTY || t === E.STONE || M[i] === stamp) continue;
+        const dir = Math.random() < .5 ? -1 : 1;
+        switch (t) {
+          case E.SAND: {
+            const below = get(x, y + 1);
+            if (passable(below, true)) swap(i, idx(x, y + 1));
+            else if (passable(get(x + dir, y + 1), true)) swap(i, idx(x + dir, y + 1));
+            else if (passable(get(x - dir, y + 1), true)) swap(i, idx(x - dir, y + 1));
+            break;
+          }
+          case E.WATER: case E.OIL: case E.LAVA: {
+            if (t === E.LAVA && Math.random() < .55) break;   // 岩浆黏稠，流得慢
+            if (t === E.LAVA) {
+              for (const [dx, dy] of [[0, 1], [1, 0], [-1, 0], [0, -1]]) {
+                const n = get(x + dx, y + dy);
+                if (n === E.WATER) { set(x + dx, y + dy, E.SMOKE, 60 + Math.random() * 60); set(x, y, E.STONE); break; }
+                if ((n === E.PLANT || n === E.OIL) && Math.random() < .3) set(x + dx, y + dy, E.FIRE, 40 + Math.random() * 40);
+              }
+              if (T[i] !== E.LAVA) break;
+            }
+            const below = get(x, y + 1), sinks = t === E.WATER && below === E.OIL;   // 水比油重，会沉到油下面
+            if (passable(below, false) || sinks) { swap(i, idx(x, y + 1)); break; }
+            if (passable(get(x + dir, y + 1), false)) { swap(i, idx(x + dir, y + 1)); break; }
+            if (passable(get(x - dir, y + 1), false)) { swap(i, idx(x - dir, y + 1)); break; }
+            const spread = t === E.LAVA ? 1 : 3;
+            for (let s = 1; s <= spread; s++) { if (!passable(get(x + dir * s, y), false)) { if (s > 1) swap(i, idx(x + dir * (s - 1), y)); break; } if (s === spread) swap(i, idx(x + dir * s, y)); }
+            break;
+          }
+          case E.FIRE: {
+            if (L[i] <= 1) { set(x, y, Math.random() < .35 ? E.SMOKE : E.EMPTY, 50 + Math.random() * 40); break; }
+            L[i] -= 1 + (Math.random() < .3);
+            for (const [dx, dy] of [[0, -1], [1, 0], [-1, 0], [0, 1], [1, -1], [-1, -1]]) {
+              const n = get(x + dx, y + dy);
+              if (n === E.WATER) { set(x, y, E.SMOKE, 40); break; }
+              if (n === E.OIL && Math.random() < .5) set(x + dx, y + dy, E.FIRE, 30 + Math.random() * 30);
+              else if (n === E.PLANT && Math.random() < .08) set(x + dx, y + dy, E.FIRE, 40 + Math.random() * 40);
+            }
+            if (T[i] !== E.FIRE) break;
+            const nx = x + (Math.random() * 3 | 0) - 1;
+            if (Math.random() < .6 && get(nx, y - 1) === E.EMPTY) swap(i, idx(nx, y - 1));
+            break;
+          }
+          case E.SMOKE: {
+            if (L[i] <= 1) { T[i] = E.EMPTY; break; }
+            L[i]--;
+            const nx = x + (Math.random() * 3 | 0) - 1;
+            if (get(nx, y - 1) === E.EMPTY) swap(i, idx(nx, y - 1));
+            else if (get(x + dir, y) === E.EMPTY) swap(i, idx(x + dir, y));
+            break;
+          }
+          case E.PLANT: {
+            if (Math.random() < .03) {   // 吸水生长
+              const dx = (Math.random() * 3 | 0) - 1, dy = (Math.random() * 3 | 0) - 1;
+              if (get(x + dx, y + dy) === E.WATER) set(x + dx, y + dy, E.PLANT);
+            }
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  // ---------- 渲染 ----------
+  function render() {
+    const d = img.data, n = W * H;
+    let count = 0;
+    for (let i = 0; i < n; i++) {
+      const t = T[i], o = i * 4;
+      if (t === E.EMPTY) { d[o] = 7; d[o + 1] = 6; d[o + 2] = 13; d[o + 3] = 255; continue; }
+      count++;
+      let [r, g, b] = COL[t];
+      const s = S[i] - 20;
+      if (t === E.FIRE) { const f = L[i] / 60; r = 255; g = 60 + f * 180 + Math.random() * 40; b = f * 60; }
+      else if (t === E.LAVA) { const f = .75 + Math.sin(frame * .08 + i * .37) * .25; r = 255 * f; g = 70 * f + s; b = 20; }
+      else if (t === E.SMOKE) { const f = L[i] / 100; r = g = b = 40 + f * 70; }
+      else if (t === E.WATER) { r += s * .3; g += s * .6 + Math.sin(frame * .05 + i * .11) * 12; }
+      else { r += s; g += s; b += s; }
+      d[o] = r; d[o + 1] = g; d[o + 2] = b; d[o + 3] = 255;
+    }
+    octx.putImageData(img, 0, 0);
+    ctx.drawImage(off, 0, 0, W * CELL, H * CELL);
+    // 火与岩浆的辉光：把画面以加法混合模糊叠加一次
+    // 先缩小到 1/4 再放大回全屏，利用双线性插值得到柔和辉光（比实时模糊便宜得多）
+    gctx.clearRect(0, 0, glow.width, glow.height);
+    gctx.drawImage(off, 0, 0, glow.width, glow.height);
+    ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = .4; ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(glow, 0, 0, W * CELL, H * CELL);
+    ctx.restore();
+    return count;
+  }
+
+  // ---------- 交互 ----------
+  let tool = E.SAND, brush = 4, down = false, erase = false, lx = -1, ly = -1;
+  const pal = document.getElementById('pal');
+  pal.innerHTML = TOOLS.map(([k, zh, c], i) => `<button data-t="${k}" style="--c:${c}" class="${i ? '' : 'on'}"><i></i>${zh}</button>`).join('') +
+    '<span class="sep"></span><button id="clear" style="--c:#ff3dbb">清空</button><button id="reset" style="--c:#5ff8ff">示例</button>';
+  pal.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { tool = E[b.dataset.t]; pal.querySelectorAll('[data-t]').forEach(x => x.classList.toggle('on', x === b)); });
+  document.getElementById('clear').onclick = () => T.fill(0);
+  document.getElementById('reset').onclick = () => { T.fill(0); demo(); };
+  cv.addEventListener('contextmenu', e => e.preventDefault());
+  cv.addEventListener('pointerdown', e => { down = true; erase = e.button === 2; lx = -1; paint(e); });
+  addEventListener('pointermove', e => { if (down) paint(e); });
+  addEventListener('pointerup', () => { down = false; });
+  addEventListener('wheel', e => { brush = Math.max(1, Math.min(14, brush - Math.sign(e.deltaY))); }, { passive: true });
+  function stamp(cx, cy) {
+    const t = erase ? E.EMPTY : tool;
+    for (let y = -brush; y <= brush; y++) for (let x = -brush; x <= brush; x++) {
+      if (x * x + y * y > brush * brush) continue;
+      // 散落型元素按概率撒点，看起来更自然
+      if ((t === E.SAND || t === E.WATER || t === E.OIL || t === E.FIRE) && Math.random() < .5) continue;
+      const px = cx + x, py = cy + y;
+      if (!inb(px, py)) continue;
+      if (t !== E.EMPTY && get(px, py) !== E.EMPTY && t !== E.STONE) continue;
+      set(px, py, t, t === E.FIRE ? 50 + Math.random() * 40 : 0);
+    }
+  }
+  function paint(e) {
+    const cx = Math.floor(e.clientX / CELL), cy = Math.floor(e.clientY / CELL);
+    if (lx < 0) stamp(cx, cy);
+    else { const steps = Math.max(Math.abs(cx - lx), Math.abs(cy - ly), 1); for (let s = 1; s <= steps; s++) stamp(Math.round(lx + (cx - lx) * s / steps), Math.round(ly + (cy - ly) * s / steps)); }
+    lx = cx; ly = cy;
+  }
+
+  init();
+  const cnt = document.getElementById('cnt');
+  let last = performance.now(), acc = 0;
+  (function loop(now) {
+    acc = Math.min(acc + (now - last), 50); last = now;
+    if (!T) { requestAnimationFrame(loop); return; }
+    while (acc >= 1000 / 60) { if (down && lx >= 0) stamp(lx, ly); update(); acc -= 1000 / 60; }   // 固定 60 步/秒
+    const c = render();
+    if (frame % 10 === 0) cnt.textContent = c.toLocaleString();
+    requestAnimationFrame(loop);
+  })(last);
+  addEventListener('resize', init);
+})();
+</script>
+<script src="shared.js?v=20261022"></script>
+</body>
+</html>
